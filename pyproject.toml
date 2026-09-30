@@ -25,7 +25,6 @@ dependencies = [
     "tqdm",
     "imageio[ffmpeg]",
     "easydict",
-    "flash-attn",
     "numpy>=1.26.4,<2",
     "Pillow",
     "PyYAML",
@@ -35,6 +34,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cuda = ["flash-attn"]
+npu = ["torch_npu==2.9.0.post6"]
 train = [
     "lerobot==0.3.3",
     "scipy",

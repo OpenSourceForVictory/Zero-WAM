@@ -39,6 +39,14 @@ _compiled_create_block_mask = torch.compile(create_block_mask)
 
 
 def _apply_rotary_emb(x: torch.Tensor, freqs: torch.Tensor) -> torch.Tensor:
+    if x.device.type == "npu":
+        pairs = x.float().reshape(*x.shape[:-1], -1, 2)
+        trig = freqs.float().reshape(*freqs.shape[:-1], -1, 2)
+        real, imag = pairs.unbind(-1)
+        cos, sin = trig.unbind(-1)
+        return torch.stack(
+            (real * cos - imag * sin, real * sin + imag * cos), dim=-1
+        ).flatten(-2).to(x.dtype)
     x_complex = torch.view_as_complex(
         x.to(torch.float64).reshape(*x.shape[:-1], -1, 2)
     )
@@ -64,6 +72,18 @@ class ICLAttentionBackend:
         device: torch.device,
         compile_mask: bool = True,
     ):
+        if torch.device(device).type == "npu":
+            same_seq = query_seq_ids[:, None] == key_seq_ids[None, :]
+            in_window = (window_size == -1) | (
+                (query_frame_ids[:, None] - key_frame_ids[None, :]).abs()
+                <= window_size
+            )
+            normal = (key_type_ids[None, :] != -1) & same_seq & in_window
+            normal = normal & (key_type_ids[None, :] != ICL_CACHE_TYPE)
+            video_icl = (query_type_ids[:, None] == 0) & same_seq
+            video_icl = video_icl & (key_type_ids[None, :] == ICL_CACHE_TYPE)
+            cls.self_mask = normal | video_icl
+            return cls.self_mask
         def window_mask(b, h, q_idx, kv_idx):
             return (window_size == -1) | (
                 (query_frame_ids[q_idx] - key_frame_ids[kv_idx]).abs()
@@ -193,6 +213,9 @@ class ICLAttentionBackend:
         device: torch.device,
         compile_mask: bool = True,
     ):
+        if torch.device(device).type == "npu":
+            cls.cross_mask = query_seq_ids[:, None] == encoder_seq_ids[None, :]
+            return cls.cross_mask
         def sequence_mask(b, h, q_idx, kv_idx):
             return query_seq_ids[q_idx] == encoder_seq_ids[kv_idx]
 
@@ -216,6 +239,18 @@ class ICLAttentionBackend:
             block_mask = cls.cross_mask if cross_attention else cls.self_mask
         if block_mask is None:
             raise RuntimeError("Attention mask was not initialized")
+        if query.device.type == "npu":
+            import torch_npu
+
+            # FusionAttention uses True for masked entries; the backend's
+            # dense masks use True for allowed entries, like PyTorch SDPA.
+            result = torch_npu.npu_fusion_attention(
+                query.contiguous(), key.contiguous(), value.contiguous(),
+                query.shape[2], "BSND",
+                atten_mask=(~block_mask).contiguous(),
+                scale=query.shape[-1] ** -0.5, keep_prob=1.0,
+            )[0]
+            return result.masked_fill(~block_mask.any(-1)[None, :, None, None], 0)
         query = query.transpose(1, 2)
         key = key.transpose(1, 2)
         value = value.transpose(1, 2)

@@ -1,0 +1,44 @@
+/data5T/d00942093/zero-wam/env/lib/python3.10/site-packages/torch/amp/autocast_mode.py:270: UserWarning: User provided device_type of 'cuda', but CUDA is not available. Disabling
+  warnings.warn(
+2026-09-29 13:24:25,031 - torch_npu.env - INFO - get env OMP_NUM_THREADS = 8
+Loading checkpoint /data5T/d00942093/zero-wam/models/zero-wam-posttrain-robotwin
+The config attributes {'clip_output': False} were passed to AutoencoderKLWan, but are not expected and will be ignored. Please verify your config.json configuration file.
+[W929 13:24:27.444322592 NPUCachingAllocator.cpp:202] Warning: The current CANN and Soc versions require processing for 32 padding size, with memory allocation. (function operator())
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 3/3 [00:00<00:00, 38.98it/s]
+Loading checkpoint shards:   0%|          | 0/15 [00:00<?, ?it/s]Loading checkpoint shards:  20%|██        | 3/15 [00:00<00:00, 25.58it/s]Loading checkpoint shards:  40%|████      | 6/15 [00:00<00:00, 26.47it/s]Loading checkpoint shards:  60%|██████    | 9/15 [00:00<00:00, 26.57it/s]Loading checkpoint shards:  80%|████████  | 12/15 [00:00<00:00, 26.81it/s]Loading checkpoint shards: 100%|██████████| 15/15 [00:00<00:00, 27.45it/s]
+Model loaded in 15.30s
+2026-09-29 13:24:42,847 - root - INFO - [ICL] loaded latent=(1, 48, 16, 20, 28) from /data5T/d00942093/zero-wam/data/place_object_scale_icl.pth
+2026-09-29 13:24:43,411 - root - INFO - [ICL] persistent cache: {0: 0, 1: 0, 2: 2240}
+2026-09-29 13:24:57,892 - root - INFO - [ICL] cache after infer: {0: 0, 1: 756, 2: 2240}
+Chunk 0: actions=(16, 2, 16), latent=(1, 48, 2, 14, 54), 13.96s
+2026-09-29 13:25:00,683 - root - INFO - [ICL] cache after observation: {0: 788, 1: 0, 2: 2240}
+2026-09-29 13:25:14,732 - root - INFO - [ICL] cache after infer: {0: 788, 1: 756, 2: 2240}
+Chunk 1: actions=(16, 2, 16), latent=(1, 48, 2, 14, 54), 13.49s
+{
+  "device": "npu:0",
+  "torch": "2.9.0+cpu",
+  "torch_npu": "2.9.0.post6",
+  "seed": 0,
+  "steps": 50,
+  "chunks": 2,
+  "model": "/data5T/d00942093/zero-wam/models/zero-wam-posttrain-robotwin",
+  "input": "/data5T/d00942093/zero-wam/data/place_object_scale",
+  "icl_latent": "/data5T/d00942093/zero-wam/data/place_object_scale_icl.pth",
+  "mode": "offline recorded-observation inference; no simulator or action execution",
+  "action_shape": [
+    16,
+    4,
+    16
+  ],
+  "action_layout": "channels, latent_frames, actions_per_frame; first frame of first chunk is skipped by the official client",
+  "finite_actions": true,
+  "finite_video_latents": true,
+  "load_seconds": 15.303286149632186,
+  "icl_cache_seconds": 1.7720166011713445,
+  "chunk_seconds": [
+    13.958293726667762,
+    13.486277891788632
+  ],
+  "max_memory_allocated_gib": 35.77409076690674,
+  "max_memory_reserved_gib": 38.681640625
+}

@@ -1,0 +1,19 @@
+{
+  "encoded_shape": [
+    3,
+    96,
+    1,
+    14,
+    18
+  ],
+  "decoded_shape": [
+    3,
+    3,
+    5,
+    224,
+    288
+  ],
+  "finite": true,
+  "seconds": 1.195569237228483,
+  "max_memory_allocated_gib": 3.526228427886963
+}

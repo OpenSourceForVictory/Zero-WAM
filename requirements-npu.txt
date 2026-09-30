@@ -1,0 +1,30 @@
+# Tested on Linux aarch64, Ascend 910B3, CANN 9.1.0, Python 3.10.
+torch==2.9.0
+torch_npu==2.9.0.post6
+torchvision==0.24.0
+diffusers==0.36.0
+transformers==4.55.2
+numpy==1.26.4
+opencv-python-headless==4.11.0.86
+accelerate
+einops
+easydict
+imageio[ffmpeg]
+websockets
+msgpack
+matplotlib
+ftfy
+safetensors
+huggingface_hub<1
+Pillow
+PyYAML
+scipy
+psutil
+sentencepiece
+protobuf
+# CANN Python compiler dependencies used by inference operators.
+attrs
+decorator
+absl-py
+# Validation commands documented in the workspace README.
+pytest

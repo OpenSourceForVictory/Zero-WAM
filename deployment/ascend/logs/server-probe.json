@@ -1,0 +1,14 @@
+{
+  "health_status": 200,
+  "reset_ok": true,
+  "action_shape": [
+    16,
+    2,
+    16
+  ],
+  "finite_actions": true,
+  "server_timing": {
+    "infer_ms": 681.4362080767751,
+    "prev_total_ms": 1642.6865439862013
+  }
+}

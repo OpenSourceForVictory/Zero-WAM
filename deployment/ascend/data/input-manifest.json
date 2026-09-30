@@ -1,0 +1,26 @@
+{
+  "repository": "robbyant-research/HumanGen",
+  "revision": "971d12e942bf101c0d47716f928b1c044d02ac71",
+  "files": [
+    {
+      "path": "place_object_scale/observation.images.cam_high.mp4",
+      "bytes": 447330,
+      "sha256": "3dbeee30d08bde43817641a445d852227a994c56ee37a31be20465eb4044f457"
+    },
+    {
+      "path": "place_object_scale/observation.images.cam_left_wrist.mp4",
+      "bytes": 102190,
+      "sha256": "810bb44117d1dc5fa2aa40f66b713cc6b499a57d79887e3fa3a084c21d3942d9"
+    },
+    {
+      "path": "place_object_scale/observation.images.cam_right_wrist.mp4",
+      "bytes": 382587,
+      "sha256": "af059a9cbfec3370ff0769aae59de0bf733ca115f53f9bac5fd6d445bd285538"
+    },
+    {
+      "path": "place_object_scale_icl.pth",
+      "bytes": 5058493,
+      "sha256": "01caf6642c7826025b86a76a5cf241e41c2f08d9b937bf06ac161cd9858b76b0"
+    }
+  ]
+}

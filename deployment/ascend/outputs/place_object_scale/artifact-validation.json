@@ -1,0 +1,16 @@
+{
+  "action_shape": [
+    16,
+    4,
+    16
+  ],
+  "dtype": "float32",
+  "finite": true,
+  "video_frames": 13,
+  "video_frame_shape": [
+    224,
+    864,
+    3
+  ],
+  "preview": "preview.png"
+}

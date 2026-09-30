@@ -1,0 +1,28 @@
+{
+  "device": "npu:0",
+  "torch": "2.9.0+cpu",
+  "torch_npu": "2.9.0.post6",
+  "seed": 0,
+  "steps": 50,
+  "chunks": 2,
+  "model": "/data5T/d00942093/zero-wam/models/zero-wam-posttrain-robotwin",
+  "input": "/data5T/d00942093/zero-wam/data/place_object_scale",
+  "icl_latent": "/data5T/d00942093/zero-wam/data/place_object_scale_icl.pth",
+  "mode": "offline recorded-observation inference; no simulator or action execution",
+  "action_shape": [
+    16,
+    4,
+    16
+  ],
+  "action_layout": "channels, latent_frames, actions_per_frame; first frame of first chunk is skipped by the official client",
+  "finite_actions": true,
+  "finite_video_latents": true,
+  "load_seconds": 15.303286149632186,
+  "icl_cache_seconds": 1.7720166011713445,
+  "chunk_seconds": [
+    13.958293726667762,
+    13.486277891788632
+  ],
+  "max_memory_allocated_gib": 35.77409076690674,
+  "max_memory_reserved_gib": 38.681640625
+}

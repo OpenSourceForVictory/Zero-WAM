@@ -48,7 +48,9 @@ class VA_Server:
         self.job_config = job_config
         self.save_root = job_config.save_root
         self.dtype = job_config.param_dtype
-        self.device = torch.device(f"cuda:{job_config.local_rank}")
+        self.device = torch.device(
+            getattr(job_config, 'device', f"cuda:{job_config.local_rank}")
+        )
         self.enable_offload = getattr(job_config, 'enable_offload', True)  # offload vae & text_encoder to save vram
 
         self.scheduler = FlowMatchScheduler(shift=self.job_config.snr_shift,
