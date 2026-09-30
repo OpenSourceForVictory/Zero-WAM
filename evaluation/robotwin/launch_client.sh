@@ -11,6 +11,11 @@ save_root=${1:-${ZERO_WAM_ROOT}/results}
 task_name=${2:-stack_blocks_three}
 seed=${SEED:-0}
 PORT=${PORT:-29056}
+HOST=${HOST:-127.0.0.1}
+remote_args=(--host "${HOST}" --request_timeout "${REQUEST_TIMEOUT:-300}")
+if [[ -n "${ICL_ID:-}" ]]; then
+    remote_args+=(--icl_id "${ICL_ID}")
+fi
 TEST_NUM=${TEST_NUM:-100}
 ICL_LATENT_ROOT=${ICL_LATENT_ROOT:-${ZERO_WAM_ROOT}/data/HumanGen/human_latents/robotwin}
 
@@ -24,7 +29,7 @@ cd "${ROBOTWIN_ROOT}"
 exec env PYTHONWARNINGS=ignore::UserWarning XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
 python -m evaluation.robotwin.eval_policy_client_openpi \
     --config "${ROBOTWIN_ROOT}/policy/ACT/deploy_policy.yml" \
-    --port "${PORT}" \
+    --port "${PORT}" "${remote_args[@]}" \
     --save_root "${save_root}" \
     --video_guidance_scale "${TARGET_TEXT_CFG:--1}" \
     --action_guidance_scale 1 \

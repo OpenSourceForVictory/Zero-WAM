@@ -20,8 +20,9 @@ The post-training dependencies, including LeRobot 0.3.3, are included in
 ## Robotwin Environment
 
 Robotwin evaluation requires a separate Robotwin 2.0 environment. The server
-and client may use different Python environments, but they must run on the same
-machine so the client can connect to the local inference ports.
+and client may use different Python environments and machines. See
+[remote RoboTwin deployment](docs/ascend/REMOTE_ROBOTWIN.md) for an NVIDIA
+simulation client connected to an Ascend inference server.
 
 ```bash
 git clone https://github.com/RoboTwin-Platform/RoboTwin.git Robotwin

@@ -44,6 +44,8 @@ def main():
     parser.add_argument('--no-video', action='store_true')
     parser.add_argument('--serve', action='store_true')
     parser.add_argument('--port', type=int, default=29056)
+    parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--icl-registry', type=Path, help='Server-side JSON mapping of demonstration IDs to latent files')
     args = parser.parse_args()
     if args.steps < 1 or args.chunks < 1:
         parser.error('steps and chunks must be positive')
@@ -72,7 +74,12 @@ def main():
     if args.serve:
         from wan_va.utils.Simple_Remote_Infer.deploy.websocket_policy_server import WebsocketPolicyServer
         # A single-NPU service does not need NCCL/HCCL or FSDP.
-        WebsocketPolicyServer(model, host='127.0.0.1', port=args.port).serve_forever()
+        from wan_va.utils.Simple_Remote_Infer.deploy.registered_policy import RegisteredPolicy
+        policy = RegisteredPolicy(model, args.icl_registry) if args.icl_registry else model
+        metadata = dict(protocol_version=1, device=args.device, steps=args.steps,
+                        icl_ids=list(policy.latents) if args.icl_registry else [])
+        WebsocketPolicyServer(policy, host=args.host, port=args.port,
+                              metadata=metadata, single_client=True).serve_forever()
         return
     timings = []
     actions_all = []

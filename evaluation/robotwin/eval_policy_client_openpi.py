@@ -366,9 +366,8 @@ def main(usr_args):
     icl_seed = int(
         usr_args.get("seed", 0) if icl_seed_value is None else icl_seed_value
     )
-    icl_video_mapping = load_icl_human_video_map(
-        usr_args["icl_human_video_map"]
-    )
+    icl_video_mapping = ({} if usr_args.get("icl_id") else
+                         load_icl_human_video_map(usr_args["icl_human_video_map"]))
     icl_latent_root = usr_args["icl_latent_root"]
     episode_offset = int(usr_args.get("episode_offset") or 0)
     instruction_type = 'seen'
@@ -386,6 +385,7 @@ def main(usr_args):
     args["icl_seed"] = icl_seed
     args["icl_video_mapping"] = icl_video_mapping
     args["icl_latent_root"] = icl_latent_root
+    args["icl_id"] = usr_args.get("icl_id")
     args["episode_offset"] = episode_offset
 
     embodiment_type = args.get("embodiment")
@@ -469,7 +469,11 @@ def main(usr_args):
     test_num = usr_args["test_num"]
 
     
-    model = WebsocketClientPolicy(port=usr_args['port'])
+    model = WebsocketClientPolicy(host=usr_args['host'], port=usr_args['port'],
+                                  request_timeout=usr_args['request_timeout'])
+    if usr_args.get('icl_id') and usr_args['icl_id'] not in model.get_server_metadata().get('icl_ids', []):
+        model.close()
+        raise ValueError('Requested ICL ID is not registered on the inference server')
 
     st_seed, suc_num = eval_policy(task_name,
                                    TASK_ENV,
@@ -613,28 +617,25 @@ def eval_policy(task_name,
         succ = False
 
         prompt = TASK_ENV.get_instruction()
-        icl_video_path = select_icl_video(
-            args["icl_video_mapping"],
-            task_name,
-            args["icl_seed"],
-            now_id,
-        )
-        icl_latent_path = resolve_icl_latent_path(
-            icl_video_path, args["icl_latent_root"]
-        )
-        print(
-            f"[ICL] task={task_name} episode={now_id} "
-            f"video={icl_video_path} latent={icl_latent_path or 'MP4_FALLBACK'}",
-            flush=True,
-        )
+        if args.get("icl_id"):
+            # No demonstration files or inference-machine paths are needed here.
+            demo_request = {"icl_id": args["icl_id"]}
+        else:
+            icl_video_path = select_icl_video(
+                args["icl_video_mapping"], task_name, args["icl_seed"], now_id,
+            )
+            demo_request = dict(
+                icl_video_path=icl_video_path,
+                icl_latent_path=resolve_icl_latent_path(icl_video_path, args["icl_latent_root"]),
+            )
+        print(f"[ICL] task={task_name} episode={now_id} demo={demo_request}", flush=True)
         ret = model.infer(
             dict(
                 reset=True,
                 prompt=prompt,
                 save_visualization=save_visualization,
                 use_icl=True,
-                icl_video_path=icl_video_path,
-                icl_latent_path=icl_latent_path,
+                **demo_request,
                 video_guidance_scale=video_guidance_scale,
                 icl_guidance_scale=icl_guidance_scale,
             )
@@ -771,7 +772,10 @@ def parse_args_and_config():
         type=str,
         default="evaluation/robotwin/robotwin_icl_human_videos.py",
     )
-    parser.add_argument("--icl_latent_root", type=str, required=True)
+    parser.add_argument("--icl_latent_root", type=str, default="")
+    parser.add_argument("--icl_id", help="Demonstration ID registered on the remote server")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--request_timeout", type=float, default=300.0)
     parser.add_argument("--icl_seed", type=int, default=None)
     parser.add_argument("--start_seed", type=int, default=None)
     parser.add_argument("--episode_offset", type=int, default=0)

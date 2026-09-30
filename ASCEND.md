@@ -1,13 +1,13 @@
 # Zero-WAM on Ascend 910B
 
-本仓库保存适配代码、运行脚本、模型、示例输入和运行结果；Conda 环境位于仓库外的 `../env/`。
+本仓库保存适配代码、运行脚本、模型、示例输入和运行结果；Conda 使用命名环境 `zero-wam`，统一存放在 `/data5T/d00942093/miniforge3/envs/zero-wam/`。
 
 **已验证（2026-09-29）：** 官方完整 checkpoint 在单张 910B3 上完成 50 步、连续两个片段的离线推理，动作与预测视频数值正常；每段约 14 秒，峰值分配内存 35.8 GiB。详细结果见 [RUN_REPORT.md](docs/ascend/RUN_REPORT.md) 和 [report.json](outputs/place_object_scale/report.json)。当前机器未运行闭环仿真。
 
 ## 环境与路径
 
 - 项目目录：`/data5T/d00942093/zero-wam/Zero-WAM`
-- Conda 环境：`../env/`（Python 3.10）
+- Conda 环境：`zero-wam`（Python 3.10），路径 `/data5T/d00942093/miniforge3/envs/zero-wam/`
 - 公共 Conda 安装：`/data5T/d00942093/miniforge3`
 - 硬件：Linux aarch64，Ascend 910B3，8 × 64 GiB；推理默认仅使用 NPU 0。
 - CANN：9.1.0；PyTorch：2.9.0；torch_npu：2.9.0.post6。
@@ -24,7 +24,7 @@ source /data5T/d00942093/zero-wam/Zero-WAM/script/ascend/activate.sh
 ## 从头重建依赖
 
 ```bash
-/data5T/d00942093/miniforge3/bin/conda create -y -p /data5T/d00942093/zero-wam/env python=3.10 pip
+/data5T/d00942093/miniforge3/bin/conda create -y -n zero-wam python=3.10 pip
 source /data5T/d00942093/zero-wam/Zero-WAM/script/ascend/activate.sh
 python -m pip install -r /data5T/d00942093/zero-wam/Zero-WAM/requirements-npu.txt
 python -m pip install -e /data5T/d00942093/zero-wam/Zero-WAM --no-deps
@@ -57,7 +57,7 @@ cd /data5T/d00942093/zero-wam/Zero-WAM
 ./run_inference.sh --serve --port 29056
 ```
 
-服务仅绑定 `127.0.0.1`。已实际验证健康检查、reset 和动作推理请求；临时测试服务已停止。复用原项目请求协议，由 `VA_Server.infer` 处理 reset、观测缓存和推理请求。单卡运行不需要 CUDA、NCCL 或 FSDP。
+服务默认绑定 `127.0.0.1`，跨机器连接可配置 `--host`，详见下方部署说明。已实际验证健康检查、reset 和动作推理请求；临时测试服务已停止。复用原项目请求协议，由 `VA_Server.infer` 处理 reset、观测缓存和推理请求。单卡运行不需要 CUDA、NCCL 或 FSDP。
 
 ## 适配范围
 
@@ -104,6 +104,11 @@ python script/ascend/download_inputs.py
 - `docs/ascend/RUN_REPORT.md`：原始验证报告；文中的产物路径相对于仓库根目录。
 - `models/`、`data/`、`outputs/`、`logs/`：本机模型、输入和运行产物；Git 仅保存下载清单及选定的小型验证记录。
 - `deployment/ascend/`：历史依赖版本记录和原始适配补丁，供追溯使用；安装请使用当前 `requirements-npu.txt`，无需复制文件到外层。
-- `../env/`、`../cache/`、`../RoboTwin/`：环境、下载缓存和独立仿真仓库。
+- `/data5T/d00942093/miniforge3/envs/zero-wam/`：统一由 Conda 管理的命名环境。
+- `../cache/`、`../RoboTwin/`：下载缓存和独立仿真仓库。
 
-激活脚本按自身位置定位仓库。环境和 Conda 默认使用上述相邻目录，可通过 `ZERO_WAM_ENV`、`ZERO_WAM_CONDA_ROOT` 覆盖。2026-09-29 的 JSON 和日志保留当时的原始路径；整理目录后的新运行记录使用新路径。
+激活脚本按自身位置定位仓库。默认通过 `conda activate zero-wam` 激活环境；环境名和 Conda 安装目录可通过 `ZERO_WAM_ENV`、`ZERO_WAM_CONDA_ROOT` 覆盖。2026-09-29 的 JSON 和日志保留当时的原始路径；整理目录后的新运行记录使用新路径。
+
+## 跨机器仿真
+
+NVIDIA RoboTwin 客户端连接 910B 推理服务的部署与验证步骤见 [REMOTE_ROBOTWIN.md](docs/ascend/REMOTE_ROBOTWIN.md)。

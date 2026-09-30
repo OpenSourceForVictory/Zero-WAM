@@ -24,7 +24,10 @@ class WebsocketPolicyServer:
         host: str = "0.0.0.0",
         port: int | None = None,
         metadata: dict | None = None,
+        single_client: bool = False,
     ) -> None:
+        self._single_client = single_client
+        self._client_active = False
         self._policy = policy
         self._host = host
         self._port = port
@@ -48,19 +51,33 @@ class WebsocketPolicyServer:
             await server.serve_forever()
 
     async def _handler(self, websocket: _server.ServerConnection):
+        if self._single_client and self._client_active:
+            await websocket.close(code=1013, reason="Inference session already in use")
+            return
+        self._client_active = True
+        try:
+            await self._serve_session(websocket)
+        finally:
+            self._client_active = False
+
+    async def _serve_session(self, websocket: _server.ServerConnection):
         logger.info(f"Connection from {websocket.remote_address} opened")
         packer = Packer()
 
         await websocket.send(packer.pack(self._metadata))
 
         prev_total_time = None
+        needs_reset = self._single_client
         while True:
             try:
                 start_time = time.monotonic()
                 obs = unpackb(await websocket.recv())
 
+                if needs_reset and not obs.get("reset"):
+                    raise ValueError("A new inference session must begin with reset")
                 infer_time = time.monotonic()
                 action = self._policy.infer(obs)
+                needs_reset = False
                 infer_time = time.monotonic() - infer_time
 
                 action["server_timing"] = {
