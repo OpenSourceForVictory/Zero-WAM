@@ -1,5 +1,7 @@
 # NVIDIA 仿真端连接 Ascend 推理端
 
+首次部署请按 [NVIDIA 仿真端完整安装指南](NVIDIA_SIM_SETUP.md) 从代码获取、环境安装开始操作。
+
 两台机器分别运行原项目 RoboTwin 仿真与单卡 Zero-WAM 推理。仿真端发送三路 RGB 观测、reset 和缓存更新请求，推理端返回原始动作段；末端动作还原和执行仍由原 RoboTwin 客户端负责。该流程未实现 Piper 真机控制。
 
 ## 910B 推理端
@@ -19,7 +21,7 @@
 
 ## NVIDIA 仿真端
 
-使用包含本次修改的 Zero-WAM checkout。也可以把提供的 `zero-wam-remote-client.tar.gz` 复制到 NVIDIA 机器后解压（源码包不包含模型权重、环境或仿真资产）：
+通过 `git clone https://github.com/OpenSourceForVictory/Zero-WAM.git` 获取包含本次修改的代码，完整命令见上述安装指南。也可以把提供的 `zero-wam-remote-client.tar.gz` 复制到 NVIDIA 机器后解压（源码包不包含模型权重、环境或仿真资产）：
 
 ```bash
 mkdir -p Zero-WAM
@@ -42,7 +44,7 @@ curl --fail "http://${HOST}:${PORT}/healthz"
 bash evaluation/robotwin/launch_client.sh results/remote-place-object-scale place_object_scale
 ```
 
-仿真端不需要下载 Zero-WAM 权重或安装 `torch_npu`。保留 RoboTwin 自身所需的 CUDA/PyTorch 环境。脚本默认使用 `demo_clean`、seed 0、原项目动作转换和评测循环。结果写入指定 `results/` 子目录；预期评测输出 `_result.txt` 和回合录像。`REQUEST_TIMEOUT` 默认 300 秒，可按推理耗时调整。
+仿真端不需要下载 Zero-WAM 权重或安装 `torch_npu`。保留 RoboTwin 自身所需的 CUDA/PyTorch 环境。脚本默认使用 `demo_clean`、seed 0、原项目动作转换和评测循环。指标和对比录像写入指定 `results/` 子目录；`_result.txt` 与环境录像另保存在 RoboTwin 的 `eval_result/` 下，完整路径见安装指南。`REQUEST_TIMEOUT` 默认 300 秒，可按推理耗时调整。
 
 未设置 `ICL_ID` 时保留原本的本地演示路径模式，配合原启动方式使用；启用了注册表的服务要求 reset 提供已注册 ID。原多 GPU 一键脚本未改造成跨机器调度器，请分别启动客户端和服务进程。
 
