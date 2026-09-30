@@ -2,7 +2,7 @@
 
 本文部署 Zero-WAM 原项目的 RoboTwin 仿真客户端，连接另一台机器上的 Ascend 910B 推理服务。先运行 `place_object_scale` 一个任务、一个回合。机器人与场景沿用 RoboTwin 的 `demo_clean` 配置，此阶段不接入 Piper 真机。
 
-本文核对了 RoboTwin `2eeec322` 的安装源码。当前已验证 910B 推理及本机跨进程 WebSocket 通信；以下 NVIDIA 编译、渲染和闭环仿真步骤尚未在你的机器执行，不代表已经完成实机验证。
+本文核对了 RoboTwin `2eeec322` 的安装源码。2026-09-30 已在 RTX 4090、驱动 580.126.09、系统 CUDA Toolkit 12.4 上完成验证：PyTorch 2.4.1 cu121、PyTorch3D 和 CuRobo CUDA 扩展可用，SAPIEN 输出 `Render Well`，`place_object_scale` 单回合通过 SSH 隧道连接 910B 服务并成功完成。
 
 ## 1. 两台机器的分工
 
@@ -71,6 +71,8 @@ nvcc --version
 
 如果使用 Docker，需在**创建容器时**启用 `--gpus all` 和 `-e NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics`，使用带 CUDA 编译工具的 devel 环境。在容器内部也要重新验证 `nvidia-smi`、`nvcc`、`vulkaninfo`。仅提供 compute/utility 不足以运行 SAPIEN 渲染。
 
+Isaac Sim 能运行不表示当前 shell 一定能找到 `nvcc`。Isaac Sim 自带运行时组件，而编译 PyTorch3D/CuRobo 需要系统 CUDA Toolkit。若 `/usr/local/cuda-*` 已存在，只需先修正 `CUDA_HOME` 和 `PATH`，不要重复安装 Toolkit。实测 PyTorch cu121 可由 CUDA Toolkit 12.4 编译这两个扩展；PyTorch 运行时仍报告 CUDA 12.1，这是 wheel 自带运行库的版本，二者可以共存。
+
 ## 4. 创建仿真环境并固定 RoboTwin 版本
 
 先确保 `conda` 可用；没有时可按 [Miniforge 官方说明](https://github.com/conda-forge/miniforge)安装。不要复制 910B 的 ARM64 环境到 x86_64 机器。
@@ -109,6 +111,9 @@ numpy==1.26.4
 zarr<3
 opencv-python<4.12
 moviepy<2
+scipy==1.10.1
+scikit-image==0.21.0
+warp-lang==1.5.0
 EOF
 export PIP_CONSTRAINT="$DEPLOY_ROOT/robotwin-constraints.txt"
 python -m pip install -r script/requirements.txt
@@ -134,7 +139,7 @@ MAX_JOBS=4 python -m pip install -e . --no-build-isolation
 cd "$ROBOTWIN_ROOT"
 ```
 
-CuRobo 这个固定版本尚未在你的 NVIDIA 机器验证；若出现 API 或编译不兼容，保留完整错误日志及版本记录再调整。不要忽略扩展编译失败继续运行任务。
+CuRobo 0.7.6 已在 RTX 4090 上验证。必须固定 `warp-lang==1.5.0`：CuRobo 的依赖只声明了 `warp-lang>=0.9.0`，会安装不兼容的新版本；例如 1.17.0 已不再提供该版 CuRobo 使用的 `warp.torch` 接口。不要忽略扩展编译失败继续运行任务。
 
 按该版 RoboTwin 安装脚本的意图，修补依赖源码；脚本会保存首次修改前的备份：
 
@@ -169,12 +174,19 @@ python -m pip check
 
 ## 6. 下载仿真资产、更新路径与评测文件
 
-只下载物体、纹理和机器人资产，不需要下载训练数据集：
+默认 `demo_clean` 只需要物体和机器人资产，不需要训练数据集，也不会读取随机背景纹理。背景纹理压缩包约 10.97 GB，仅在启用 `random_background` 时需要。下载默认任务所需资产：
 
 ```bash
 cd "$ROBOTWIN_ROOT/assets"
-python _download.py
-unzip -n background_texture.zip
+python - <<'PY'
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id="TianxingChen/RoboTwin2.0",
+    allow_patterns=["embodiments.zip", "objects.zip"],
+    local_dir=".",
+    repo_type="dataset",
+)
+PY
 unzip -n embodiments.zip
 unzip -n objects.zip
 cd "$ROBOTWIN_ROOT"
@@ -186,7 +198,15 @@ cp "$ZERO_WAM_ROOT/evaluation/robotwin/envs/move_stapler_pad.py" envs/move_stapl
 cp "$ZERO_WAM_ROOT/evaluation/robotwin/envs/stamp_seal.py" envs/stamp_seal.py
 ```
 
-`assets/objects`、`assets/background_texture`、`assets/embodiments` 都应存在。路径更新脚本必须在 RoboTwin 根目录运行，移动整个安装目录后也需重新执行。任务文件覆盖是 Zero-WAM 原项目的评测要求。
+若要运行随机背景配置，再执行原下载脚本并解压背景包：
+
+```bash
+cd "$ROBOTWIN_ROOT/assets"
+python _download.py
+unzip -n background_texture.zip
+```
+
+默认配置应确认 `assets/objects` 和 `assets/embodiments` 存在；随机背景配置还应确认 `assets/background_texture`。路径更新脚本必须在 RoboTwin 根目录运行，移动整个安装目录后也需重新执行。任务文件覆盖是 Zero-WAM 原项目的评测要求。
 
 ## 7. 单独验证 CUDA 与 SAPIEN
 
@@ -194,6 +214,8 @@ cp "$ZERO_WAM_ROOT/evaluation/robotwin/envs/stamp_seal.py" envs/stamp_seal.py
 conda activate zero-wam-sim
 export PYTHONPATH="$ZERO_WAM_ROOT:$ROBOTWIN_ROOT:${PYTHONPATH:-}"
 export MPLBACKEND=Agg
+# 若 NVIDIA ICD 位于该路径，显式设置可避免 SAPIEN 误报找不到驱动。
+export VK_ICD_FILENAMES=/etc/vulkan/icd.d/nvidia_icd.json
 cd "$ZERO_WAM_ROOT"
 python - <<'PY'
 import torch
@@ -248,6 +270,21 @@ bash evaluation/robotwin/launch_client.sh \
 ```
 
 健康检查预期输出 `OK`。首次仿真可能需要初始化或编译运动规划缓存；每次模型推理也有明显等待（已测 910B 50 步约十几秒），不能按实时控制速度判断程序是否卡住。
+
+若公网端口不开放，可从 NVIDIA 仿真机建立 SSH 隧道。`ssh -N` 成功后会持续占用前台且不返回提示；加入 `-f` 可在认证成功后转入后台：
+
+```bash
+ssh -i /path/to/key -p 22 \
+  -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 -fN \
+  -L 127.0.0.1:39056:ASCEND_LAN_IP:29056 SSH_USER@ASCEND_PUBLIC_IP
+
+curl --noproxy '*' --fail http://127.0.0.1:39056/healthz
+export HOST=127.0.0.1
+export PORT=39056
+```
+
+使用 Clash TUN 等透明代理时，仅设置 `NO_PROXY` 不一定绕过系统策略路由。SSH 隧道可同时避免公开推理端口和透明代理路径问题。
 
 任务首先筛选有效场景/专家轨迹，再调用远程策略。看到 `Success!` 或 `Fail!` 并生成评测文件，才说明一个闭环回合已执行结束；`Fail!` 可以是任务未成功，并不必然意味着通信失败。
 
