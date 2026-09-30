@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
-root=Path(__file__).resolve().parents[1]
+root=Path(__file__).resolve().parents[2]
 manifest=json.loads((root/'data/input-manifest.json').read_text())
 base=f"https://huggingface.co/datasets/{manifest['repository']}/resolve/{manifest['revision']}/"
 for item in manifest['files']:

@@ -1,6 +1,6 @@
 # Ascend 推理验证报告
 
-日期：2026-09-29（UTC）。
+日期：2026-09-29（UTC）。产物路径均相对于 Zero-WAM 仓库根目录；原始日志内的绝对路径保留运行时记录。
 
 ## 结论
 
@@ -33,15 +33,15 @@ Zero-WAM 官方完整 Robotwin checkpoint 已在 Linux ARM64、Ascend 910B3 上�
 
 ## 仿真限制
 
-未跑 RoboTwin 闭环仿真：指定 SAPIEN 3.0.0b1 没有 ARM64 wheel，实际安装探测失败；本容器也没有所需的 NVIDIA/AMD 图形后端和 Vulkan ICD。当前目录中的 RoboTwin 仓库仅用于依赖检查。
+未跑 RoboTwin 闭环仿真：指定 SAPIEN 3.0.0b1 没有 ARM64 wheel，实际安装探测失败；本容器也没有所需的 NVIDIA/AMD 图形后端和 Vulkan ICD。仓库外 `../RoboTwin/`仅用于依赖检查。
 
 官方参考：https://robotwin-platform.github.io/doc/usage/robotwin-install.html
 
 ## 复现
 
 ```bash
-cd /data5T/d00942093/zero-wam
+cd /data5T/d00942093/zero-wam/Zero-WAM
 ./run_inference.sh --steps 50 --chunks 2
 ```
 
-复用环境、模型下载、服务启动和文件说明见 `README.md`。本次未引入 OpenSpec；通过固定版本、独立环境、适配补丁、可执行脚本和上述验证报告记录工作。
+复用环境、模型下载、服务启动和文件说明见 [ASCEND.md](../../ASCEND.md)。本次未引入 OpenSpec；通过固定版本、独立环境、适配补丁、可执行脚本和上述验证报告记录工作。

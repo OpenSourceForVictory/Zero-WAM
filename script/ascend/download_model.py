@@ -4,7 +4,7 @@ import json
 import pathlib
 import subprocess
 import time
-root=pathlib.Path(__file__).resolve().parents[1]
+root=pathlib.Path(__file__).resolve().parents[2]
 info=json.loads((root/'models/model-info.json').read_text())
 target=root/'models/zero-wam-posttrain-robotwin'
 revision=info['sha']

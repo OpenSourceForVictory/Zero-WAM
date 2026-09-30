@@ -30,3 +30,9 @@ data/
 *.safetensors
 
 .DS_Store
+
+# Local Ascend runtime resources
+/env/
+/cache/
+/models/
+/deployment/ascend/*.patch

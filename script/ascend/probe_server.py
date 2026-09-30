@@ -8,7 +8,7 @@ import websockets.sync.client
 from infer_npu import read_observation
 from wan_va.configs.va_robotwin_cfg import va_robotwin_cfg
 from wan_va.utils.Simple_Remote_Infer.deploy.msgpack_numpy import Packer,unpackb
-root=Path(__file__).resolve().parents[1]
+root=Path(__file__).resolve().parents[2]
 for attempt in range(120):
  try:
   with urllib.request.urlopen('http://127.0.0.1:29856/healthz',timeout=2) as response:

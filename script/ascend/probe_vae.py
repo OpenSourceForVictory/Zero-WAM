@@ -8,7 +8,7 @@ import torch_npu
 import torch.nn.functional as F
 import imageio.v2 as imageio
 from wan_va.modules.utils import load_vae, WanVAEStreamingWrapper
-root=Path(__file__).resolve().parents[1]
+root=Path(__file__).resolve().parents[2]
 p=root/'models/zero-wam-posttrain-robotwin/vae/diffusion_pytorch_model.safetensors'
 while not p.exists(): time.sleep(10)
 h=hashlib.sha256()

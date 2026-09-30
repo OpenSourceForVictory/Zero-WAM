@@ -9,8 +9,8 @@ import torch.nn.functional as F
 import wan_va.modules.icl_model as mod
 from torch.nn.attention.flex_attention import create_block_mask
 
-root=Path(__file__).resolve().parents[1]
-helper=runpy.run_path(str(root/'Zero-WAM/tests/test_icl_model.py'))
+root=Path(__file__).resolve().parents[2]
+helper=runpy.run_path(str(root/'tests/test_icl_model.py'))
 torch.manual_seed(17)
 torch.set_num_threads(8)
 model=mod.WanICLTransformer3DModel(patch_size=(1,1,1),num_attention_heads=2,attention_head_dim=128,in_channels=4,out_channels=4,action_dim=3,text_dim=8,freq_dim=4,ffn_dim=256,num_layers=2,rope_max_seq_len=32,action_inner_dim=256,action_ffn_dim=256,attn_window=4,enable_mcp=False).to(dtype=torch.bfloat16).eval()

@@ -2,7 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
-root=Path(__file__).resolve().parents[1]
+root=Path(__file__).resolve().parents[2]
 target=root/'models/zero-wam-posttrain-robotwin'
 entries=json.loads((root/'models/manifest.json').read_text())
 report=[]

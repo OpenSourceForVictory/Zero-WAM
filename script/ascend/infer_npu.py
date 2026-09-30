@@ -16,7 +16,7 @@ from wan_va.configs.va_robotwin_cfg import va_robotwin_cfg
 from wan_va.wan_va_server import VA_Server
 from wan_va.utils import init_logger
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def read_observation(directory, keys, frame=0):
