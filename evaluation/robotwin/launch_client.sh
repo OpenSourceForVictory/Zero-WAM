@@ -16,6 +16,9 @@ remote_args=(--host "${HOST}" --request_timeout "${REQUEST_TIMEOUT:-300}")
 if [[ -n "${ICL_ID:-}" ]]; then
     remote_args+=(--icl_id "${ICL_ID}")
 fi
+case "${USE_ICL:-1}" in
+    0|false|False|FALSE|no|No|NO) remote_args+=(--no_icl) ;;
+esac
 TEST_NUM=${TEST_NUM:-100}
 ICL_LATENT_ROOT=${ICL_LATENT_ROOT:-${ZERO_WAM_ROOT}/data/HumanGen/human_latents/robotwin}
 

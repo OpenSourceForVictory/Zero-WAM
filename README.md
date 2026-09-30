@@ -247,6 +247,12 @@ uses the empty-text embedding for the target robot stream. `SEED=0` fixes the
 Robotwin rollout seed. The ICL demonstration for each task is fixed by
 `evaluation/robotwin/robotwin_icl_human_videos.py`.
 
+For a text-conditioned ablation without the human demonstration, set both
+`USE_ICL=0` and a positive target-text guidance scale, for example
+`TARGET_TEXT_CFG=5`. Combining `USE_ICL=0` with `TARGET_TEXT_CFG=-1` removes
+both demonstration and target-text conditioning, so it is not a useful
+no-ICL comparison.
+
 ### Eight-GPU Evaluation
 
 Run the full unseen-task evaluation:
