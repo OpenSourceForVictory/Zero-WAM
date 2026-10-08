@@ -164,3 +164,21 @@ cache-update method without model weights, and do not connect to hardware.
 Official references: [Piper SDK](https://github.com/agilexrobotics/piper_sdk),
 [dual-arm mode guide](https://github.com/agilexrobotics/piper_sdk/blob/master/asserts/double_piper.MD),
 [variant-specific URDFs](https://github.com/agilexrobotics/agx_arm_urdf).
+
+## Preflight against a running inference service
+
+Before connecting cameras, the model can be exercised with recorded simulation
+images and a registered test MP4. This never opens a robot connection:
+
+```bash
+python -m evaluation.real_aloha.probe_policy \
+  --input /path/to/recorded-observations \
+  --video-id codec_probe_synthetic \
+  --output results/real-aloha/model-preflight
+```
+
+The input directory contains the three `observation.images.cam_*.mp4` files.
+The probe checks MP4 reset/encoding and prediction, existing latent-based
+prediction, explicit stationary history and a subsequent prediction. Its repeated
+images and synthetic stationary action history are a protocol test, not real
+robot feedback or a task-success evaluation. Reports are saved even on failure.

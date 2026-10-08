@@ -352,3 +352,43 @@ def test_loopback_rpc_to_readonly_service(tmp_path):
         client.finish("test")
     thread.join(5)
     assert not thread.is_alive()
+
+
+def test_production_video_reader_handles_infinite_ffmpeg_frame_count(
+    tmp_path, monkeypatch
+):
+    import imageio.v2 as imageio
+    import torch
+    import torch.nn.functional as F
+
+    video = tmp_path / "unknown-frame-count.mp4"
+    with imageio.get_writer(str(video), format="ffmpeg", fps=12) as writer:
+        for _ in range(9):
+            writer.append_data(np.zeros((32, 48, 3), np.uint8))
+    monkeypatch.setitem(sys.modules, "decord", None)
+    tree = ast.parse((ROOT / "wan_va/wan_va_server.py").read_text())
+    cls = next(
+        n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "VA_Server"
+    )
+    methods = [
+        n
+        for n in cls.body
+        if isinstance(n, ast.FunctionDef)
+        and n.name in ("_read_icl_video", "_sample_icl_frame_indices")
+    ]
+    ns = dict(np=np, torch=torch, F=F)
+    exec(
+        compile(
+            ast.Module(body=methods, type_ignores=[]), "production_video_reader", "exec"
+        ),
+        ns,
+    )
+    server = SimpleNamespace(
+        job_config=SimpleNamespace(icl_height=32, icl_width=48, icl_fps=12)
+    )
+    server._sample_icl_frame_indices = lambda *args: ns["_sample_icl_frame_indices"](
+        server, *args
+    )
+    result = ns["_read_icl_video"](server, str(video))
+    assert result.shape == (1, 3, 9, 32, 48)
+    assert torch.isfinite(result).all()

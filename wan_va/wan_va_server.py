@@ -438,7 +438,6 @@ class VA_Server:
         target_w = int(self.job_config.icl_width)
         target_fps = int(self.job_config.icl_fps)
         frames = None
-        decord_error = None
         try:
             from decord import VideoReader, cpu
 
@@ -447,24 +446,23 @@ class VA_Server:
                 len(reader), float(reader.get_avg_fps() or 0), target_fps
             )
             frames = reader.get_batch(indices).asnumpy()
-        except Exception as exc:
-            decord_error = exc
+        except Exception:
+            pass
         if frames is None:
             try:
                 import imageio.v2 as imageio
 
-                reader = imageio.get_reader(video_path)
-                src_fps = float(reader.get_meta_data().get("fps", 0) or 0)
-                frames = np.stack(list(reader), axis=0)
-                reader.close()
+                with imageio.get_reader(video_path) as reader:
+                    src_fps = float(reader.get_meta_data().get("fps", 0) or 0)
+                    # FFmpeg readers may report length=inf. list(reader) uses
+                    # that length hint for allocation and raises MemoryError.
+                    frames = np.stack([frame for frame in reader], axis=0)
                 indices = self._sample_icl_frame_indices(
                     len(frames), src_fps, target_fps
                 )
                 frames = frames[indices]
             except Exception as exc:
-                raise RuntimeError(f"Failed to read ICL video: {video_path}") from (
-                    decord_error or exc
-                )
+                raise RuntimeError(f"Failed to read ICL video: {video_path}") from exc
         frames = torch.from_numpy(frames).permute(0, 3, 1, 2).float()
         frames = F.interpolate(
             frames,
