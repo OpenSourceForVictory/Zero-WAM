@@ -132,6 +132,42 @@ ICL defaults remain video/text guidance -1 and ICL guidance 5.
 
 ## Execution boundary and history protocol
 
+### Existing LingBot Piper end-pose control
+
+The hardware host's `lingbot-va-piper/client/real_robot_inference.py` implements
+16D relative EEF composition followed by
+`PiperController.send_end_pose_with_gripper(left_xyz_rpy, right_xyz_rpy, left_m,
+right_m)`. Its controller uses `move_p`, accepting absolute flange poses in each
+arm's own base (meters and XYZ extrinsic Euler radians). This differs from the
+`real_robot_inference_merged.py` MOVE_JS joint-action path.
+
+`piper_eef.PiperEEFAdapter` prepares this end-pose method's arguments directly,
+without an external IK solver or any SDK import. Supply episode-start flange
+poses, explicit task-from-base and flange-from-TCP transforms for both arms,
+the policy translation-axis rotation, and measured gripper maximum openings.
+Identity base/tool transforms represent the old `--no_transform --tcp_offset 0`
+convention only when that convention is actually appropriate for the installation.
+Do not infer it merely because a calibration file is missing.
+
+`prepare(action, current_flange_poses, current_grippers_m)` reconstructs the
+episode-relative EEF target, limits it from the current TCP feedback to 4 mm /
+0.025 radians, converts to per-arm flange xyz/rpy, and holds measured gripper
+openings by default. `follow_grippers=True` converts normalized model openings
+to meters. Returned `controller_arguments` match the existing end-pose method.
+The preview explicitly reports `executable=False`: it does not connect, enable,
+send, check collisions/reachability, or validate feedback freshness. It is not
+yet wired into the RPC execution loop. The existing ROS bridge remains read-only.
+
+Before sending these arguments, the motion service must enforce fresh feedback,
+confirmed installation conventions, workspace and stopping checks, and report
+actual measured EEF history. Supplying a validated format is not evidence that
+an autonomous grasp is commissioned. This path does not require replacing the
+existing working end-pose controller with a joint-space implementation.
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_piper_eef.py
+```
+
 The bundled robot bridge cannot execute, enable, home, zero or disable hardware.
 The client's existing `execute` interface is for a separately commissioned motion
 service. No complete real task or autonomous grasp is claimed here. It also
@@ -182,3 +218,60 @@ The probe checks MP4 reset/encoding and prediction, existing latent-based
 prediction, explicit stationary history and a subsequent prediction. Its repeated
 images and synthetic stationary action history are a protocol test, not real
 robot feedback or a task-success evaluation. Reports are saved even on failure.
+
+## Migrated LingBot merged client: direct EEF execution
+
+`run_piper_eef.py` is a copy of the site's merged client with a separate 16D
+Zero-WAM EEF branch. Per the site's deployment choice, it retains the existing
+connect/enable/camera/control lifecycle; **it is an execution entry, not a
+preview**. The original hardware-host `real_robot_inference_merged.py` is unchanged.
+Hardware imports come from `LINGBOT_CLIENT_DIR` (default
+`/home/agilex/models/lingbot-va-piper/client`), using its `piper_controller.py`,
+`camera_manager.py`, `va_client.py`, and existing utilities. This is not yet a
+standalone replacement for those installed hardware dependencies.
+
+The new branch accepts `(16, 2, 16)`, skips the initial conditioning frame on the
+first chunk, reconstructs EEF actions relative to episode-start poses, converts
+quaternions to xyz Euler radians, and invokes `send_end_pose_with_gripper` /
+MOVE_P. Normalized model gripper openings are converted to meters using the
+existing controller's 0.08 m range. Joint smoothing is bypassed. The original
+14/28D joint branches remain. `--control_mode movejs` preserves the familiar
+startup/speed defaults, but **16D commands themselves are MOVE_P, not MOVE_JS**.
+
+ICL reset is sent explicitly in this file, so it does not depend on the previous
+`va_client.reset` modification. Before another chunk, real measured EEF/gripper
+history is sent as `executed_actions`. A runtime stop is checked before every
+EEF action. Do not run this entry concurrently with another hardware controller.
+
+On the robot host, after deploying the project package:
+
+```bash
+source /opt/ros/noetic/setup.bash
+export LD_PRELOAD=/lib/x86_64-linux-gnu/libffi.so.7
+cd /home/agilex/zero-wam-readonly
+/home/agilex/miniconda3/envs/piper_new/bin/python \
+  -m evaluation.real_aloha.run_piper_eef \
+  --server-host 127.0.0.1 --server-port 39056 \
+  --icl-id bread_plate_20261008_v1 \
+  --prompt "Take two plates from the rack and place them on the tray. Put one slice of bread on each plate." \
+  --control_mode movejs --max_chunks 1
+```
+
+This command enables the robot and can move it. The directory name
+`zero-wam-readonly` is historical; it does not make this new entry read-only.
+Frames/TCP follow the legacy EEF script: `--tcp_offset` defaults to zero, and
+right-base calibration is attempted unless `--no_transform` is supplied. A missing
+calibration file falls back to each arm's own base, with a printed message, just
+as the old script did. That fallback is not a calibration validation. The
+existing lifecycle/speed/gripper settings are retained, not newly commissioned
+for this policy. Hardware movement and task success have not been tested for
+this entry. Unit tests use simulated controllers; the on-device check only loads
+`--help`.
+
+Predictions, measured EEF arrays and key-camera images are saved to the timestamped
+`inference_logs` run directory. The old `logger.finish` remains disabled as in the
+site source; do not interpret a missing exception as a successful physical task.
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_piper_merged_eef.py
+```
