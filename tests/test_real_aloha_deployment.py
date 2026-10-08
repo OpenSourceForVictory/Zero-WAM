@@ -392,3 +392,69 @@ def test_production_video_reader_handles_infinite_ffmpeg_frame_count(
     result = ns["_read_icl_video"](server, str(video))
     assert result.shape == (1, 3, 9, 32, 48)
     assert torch.isfinite(result).all()
+
+
+def test_raw_demo_uses_full_video_vae_and_preserves_last_frames(tmp_path):
+    import os
+    import torch
+
+    video = tmp_path / "demo.mp4"
+    video.touch()
+    frames = torch.ones(1, 3, 6, 8, 8) * 255
+    calls = []
+
+    class VAE:
+        config = SimpleNamespace(latents_mean=[0], latents_std=[1])
+
+        def parameters(self):
+            yield torch.zeros(1)
+
+        def encode(self, video):
+            calls.append(video.clone())
+            return SimpleNamespace(
+                latent_dist=SimpleNamespace(mode=lambda: torch.ones(1, 1, 3, 1, 1))
+            )
+
+    class Streaming:
+        def __init__(self):
+            self.clears = 0
+
+        def clear_cache(self):
+            self.clears += 1
+
+        def encode_chunk(self, video):
+            raise AssertionError(
+                "Cold streaming encoder cannot accept the entire video"
+            )
+
+    tree = ast.parse((ROOT / "wan_va/wan_va_server.py").read_text())
+    cls = next(
+        n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "VA_Server"
+    )
+    method = next(
+        n
+        for n in cls.body
+        if isinstance(n, ast.FunctionDef) and n.name == "_load_or_encode_icl"
+    )
+    ns = dict(torch=torch, os=os, logger=SimpleNamespace(info=lambda *args: None))
+    exec(
+        compile(
+            ast.Module(body=[method], type_ignores=[]),
+            "production_video_encode",
+            "exec",
+        ),
+        ns,
+    )
+    streaming = Streaming()
+    server = SimpleNamespace(
+        streaming_vae=streaming,
+        vae=VAE(),
+        dtype=torch.float32,
+        _read_icl_video=lambda _: frames,
+        normalize_latents=lambda mu, *args: mu,
+    )
+    latent, text = ns["_load_or_encode_icl"](server, str(video), "")
+    assert calls[0].shape == (1, 3, 9, 8, 8)
+    assert torch.all(calls[0] == 1)  # normalization and repeated tail
+    assert latent.shape == (1, 1, 3, 1, 1)
+    assert streaming.clears == 2 and text is None

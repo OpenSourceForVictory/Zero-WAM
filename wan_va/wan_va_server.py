@@ -517,8 +517,13 @@ class VA_Server:
             device=next(self.vae.parameters()).device, dtype=self.dtype
         )
         video = video / 255.0 * 2.0 - 1.0
-        enc_out = self.streaming_vae.encode_chunk(video)
-        mu, _ = torch.chunk(enc_out, 2, dim=1)
+        # A cold streaming encoder accepts one frame first, then groups of four.
+        # Use the VAE's full-video API, which implements that causal schedule.
+        # Repeat the last frame so a non-4k+1 video keeps its demonstrated ending.
+        padding = (1 - video.shape[2]) % 4
+        if padding:
+            video = torch.cat([video, video[:, :, -1:].expand(-1, -1, padding, -1, -1)], dim=2)
+        mu = self.vae.encode(video).latent_dist.mode()
         mean = torch.tensor(self.vae.config.latents_mean, device=mu.device)
         std = torch.tensor(self.vae.config.latents_std, device=mu.device)
         latent = self.normalize_latents(mu, mean, 1.0 / std).cpu()
