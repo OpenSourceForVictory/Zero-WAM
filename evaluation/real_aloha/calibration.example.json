@@ -1,0 +1,11 @@
+{
+  "verified": false,
+  "robot_model": "piper",
+  "policy_to_robot_rotation": [
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0]
+  ],
+  "gripper_threshold": 0.5,
+  "notes": "Set verified=true only after measuring the task-frame axis mapping on the installed robot. Base/TCP/FK transforms remain in the astra control-service configuration."
+}

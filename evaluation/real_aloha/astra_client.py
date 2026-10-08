@@ -1,0 +1,151 @@
+"""Client for the fail-closed dual-Piper service in ``astra-manip-src``.
+
+The robot service intentionally runs in the ROS1 environment.  This client is
+dependency-light so the Zero-WAM evaluation environment can communicate with it
+over a loopback TCP port (or an SSH-forwarded loopback port).
+"""
+
+from __future__ import annotations
+
+import socket
+import struct
+import uuid
+import zlib
+
+import msgpack
+import numpy as np
+
+
+PROTOCOL_VERSION = 1
+MAX_MESSAGE_BYTES = 128 * 1024 * 1024
+
+
+def _encode(value):
+    if isinstance(value, np.ndarray):
+        if value.dtype.kind not in "buif":
+            raise TypeError(f"Unsupported array dtype: {value.dtype}")
+        value = np.ascontiguousarray(value)
+        payload = (value.dtype.str, value.shape, value.tobytes())
+        return msgpack.ExtType(42, msgpack.packb(payload, use_bin_type=True))
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(f"Unsupported RPC value: {type(value).__name__}")
+
+
+def _decode(code, payload):
+    if code != 42:
+        raise ValueError("Unknown RPC extension")
+    dtype_name, shape, data = msgpack.unpackb(payload, raw=False)
+    dtype = np.dtype(dtype_name)
+    if dtype.kind not in "buif" or len(shape) > 8 or any(x < 0 for x in shape):
+        raise ValueError("Invalid RPC array")
+    expected = int(np.prod(shape, dtype=object)) * dtype.itemsize
+    if expected != len(data) or expected > MAX_MESSAGE_BYTES:
+        raise ValueError("RPC array size mismatch")
+    return np.frombuffer(data, dtype=dtype).reshape(shape).copy()
+
+
+def _read_exact(sock, length):
+    result = bytearray()
+    while len(result) < length:
+        block = sock.recv(min(length - len(result), 1024 * 1024))
+        if not block:
+            raise EOFError("RPC connection closed")
+        result.extend(block)
+    return bytes(result)
+
+
+def _send_packet(sock, value):
+    raw = msgpack.packb(value, default=_encode, use_bin_type=True)
+    if len(raw) > MAX_MESSAGE_BYTES:
+        raise ValueError("RPC message too large")
+    payload = zlib.compress(raw, level=1)
+    if len(payload) > MAX_MESSAGE_BYTES:
+        raise ValueError("Compressed RPC message too large")
+    sock.sendall(struct.pack("!I", len(payload)) + payload)
+
+
+def _receive_packet(sock):
+    (length,) = struct.unpack("!I", _read_exact(sock, 4))
+    if not 0 < length <= MAX_MESSAGE_BYTES:
+        raise ValueError("Invalid RPC packet length")
+    decoder = zlib.decompressobj()
+    raw = decoder.decompress(_read_exact(sock, length), MAX_MESSAGE_BYTES + 1)
+    if len(raw) > MAX_MESSAGE_BYTES or not decoder.eof or decoder.unused_data:
+        raise ValueError("Invalid compressed RPC packet")
+    return msgpack.unpackb(raw, raw=False, ext_hook=_decode)
+
+
+class PiperControlClient:
+    """Single-owner client; failed requests invalidate the connection."""
+
+    def __init__(self, host="127.0.0.1", port=19140, timeout=300.0):
+        self.sock = socket.create_connection((host, int(port)), timeout=timeout)
+        self.sock.settimeout(timeout)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.identity = None
+
+    def _request(self, operation, **kwargs):
+        if self.sock is None:
+            raise RuntimeError("Robot RPC client is closed")
+        request_id = uuid.uuid4().hex
+        try:
+            _send_packet(
+                self.sock,
+                dict(
+                    version=PROTOCOL_VERSION,
+                    request_id=request_id,
+                    op=operation,
+                    args=kwargs,
+                ),
+            )
+            response = _receive_packet(self.sock)
+            if (
+                response.get("version") != PROTOCOL_VERSION
+                or response.get("request_id") != request_id
+            ):
+                raise ValueError("RPC response identity mismatch")
+            if not response.get("ok"):
+                raise RuntimeError(response.get("error", "Robot RPC request failed"))
+            return response["result"]
+        except Exception:
+            self.close()
+            raise
+
+    def reset(self, policy_version="zero-wam", seed=0):
+        result = self._request(
+            "reset", seed=int(seed), source="gpt_eef", policy_version=policy_version
+        )
+        self.identity = dict(episode_id=result["episode_id"], step_id=result["step_id"])
+        return result
+
+    def _episode_request(self, operation, **kwargs):
+        if self.identity is None:
+            raise RuntimeError("Call reset before episode operations")
+        result = self._request(operation, **self.identity, **kwargs)
+        if operation == "chunk_step":
+            self.identity["step_id"] = result["step_id"]
+        return result
+
+    def observation(self):
+        return self._episode_request("teacher_observation")
+
+    def preview_eef(self, targets):
+        return self._episode_request("eef_joint_target", targets=targets)
+
+    def execute(self, proposal):
+        return self._episode_request("chunk_step", actions=[proposal["action"]])
+
+    def finish(self, reason="zero_wam_finished"):
+        return self._episode_request("finish_pilot", reason=reason)
+
+    def close(self):
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()

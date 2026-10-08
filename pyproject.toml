@@ -49,6 +49,9 @@ dev = [
     "mypy",
     "huggingface-hub[cli]"
 ]
+real = [
+    "scipy>=1.10",
+]
 
 [project.urls]
 homepage = "https://robbyant-research.github.io/Zero-WAM/"
