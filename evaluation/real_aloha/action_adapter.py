@@ -69,7 +69,10 @@ class ActionAdapter:
         self.policy_to_robot_rotation = _validate_axis_map(
             self.policy_to_robot_rotation
         )
-        if self.initial_positions.shape != (2, 3):
+        if (
+            self.initial_positions.shape != (2, 3)
+            or not np.isfinite(self.initial_positions).all()
+        ):
             raise ValueError("Expected two initial EEF positions")
         if self.initial_quaternions_wxyz.shape != (2, 4):
             raise ValueError("Expected two initial EEF quaternions")
@@ -83,8 +86,10 @@ class ActionAdapter:
         current_openings = np.asarray(current_openings, dtype=np.float64)
         if action.shape != (16,) or not np.isfinite(action).all():
             raise ValueError("Expected one finite 16D Zero-WAM action")
-        if current_openings.shape != (2,) or np.any(
-            (current_openings < 0) | (current_openings > 1)
+        if (
+            current_openings.shape != (2,)
+            or not np.isfinite(current_openings).all()
+            or np.any((current_openings < 0) | (current_openings > 1))
         ):
             raise ValueError("Expected two normalized gripper openings")
 
@@ -121,7 +126,11 @@ def limit_targets(current_observation, targets, max_translation, max_rotation):
     )
     if positions.shape != (2, 3) or quaternions.shape != (2, 4):
         raise ValueError("Invalid EEF feedback")
-    if max_translation <= 0 or max_rotation <= 0:
+    if (
+        not np.isfinite([max_translation, max_rotation]).all()
+        or max_translation <= 0
+        or max_rotation <= 0
+    ):
         raise ValueError("Motion limits must be positive")
 
     limited = {}
@@ -161,3 +170,25 @@ def limit_targets(current_observation, targets, max_translation, max_rotation):
             rotation_scale=rotation_scale,
         )
     return limited, diagnostics
+
+
+def observation_action(adapter, observation):
+    """Measured EEF feedback expressed in the episode's policy action frame."""
+    positions = np.asarray(observation["eef_positions"], float)
+    quats = np.asarray(observation["eef_quaternions_wxyz"], float)
+    openings = np.asarray(observation["states"], float)[[6, 13]]
+    if positions.shape != (2, 3) or not np.isfinite(positions).all():
+        raise ValueError("Invalid measured positions")
+    result = []
+    for i in range(2):
+        delta = adapter.policy_to_robot_rotation.T @ (
+            positions[i] - adapter.initial_positions[i]
+        )
+        rotation = Rotation.from_quat(
+            _wxyz_to_xyzw(adapter.initial_quaternions_wxyz[i])
+        ).inv() * Rotation.from_quat(_wxyz_to_xyzw(quats[i]))
+        result.extend([*delta, *rotation.as_quat(), openings[i]])
+    result = np.asarray(result, np.float32)
+    if not np.isfinite(result).all():
+        raise ValueError("Nonfinite feedback action")
+    return result

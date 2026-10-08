@@ -76,7 +76,8 @@ def main():
         # A single-NPU service does not need NCCL/HCCL or FSDP.
         from wan_va.utils.Simple_Remote_Infer.deploy.registered_policy import RegisteredPolicy
         policy = RegisteredPolicy(model, args.icl_registry) if args.icl_registry else model
-        metadata = dict(protocol_version=1, device=args.device, steps=args.steps,
+        metadata = dict(protocol_version=1, executed_action_history=True,
+                        model=str(args.model), seed=args.seed, device=args.device, steps=args.steps,
                         icl_ids=list(policy.latents) if args.icl_registry else [])
         WebsocketPolicyServer(policy, host=args.host, port=args.port,
                               metadata=metadata, single_client=True).serve_forever()

@@ -51,6 +51,8 @@ dev = [
 ]
 real = [
     "scipy>=1.10",
+    "websockets>=14,<16",
+    "typing_extensions>=4.5",
 ]
 
 [project.urls]

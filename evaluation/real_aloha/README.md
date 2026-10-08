@@ -1,97 +1,166 @@
-# Split ALOHA / dual-Piper deployment
+# Zero-WAM on split ALOHA / dual Piper
 
-This adapter connects the released RoboTwin Zero-WAM policy to the fail-closed
-ROS1 dual-Piper service in `/tmp/astra-manip-src`. The processes stay separate:
+This directory supports the next deployment milestone: real camera observations
+and a human video prompt, saved predictions, and **read-only local IK preview**.
+Hardware operation and task success have not been validated. The currently used
+RoboTwin checkpoint is not evidence of reliable transfer to Piper.
 
-1. the ROS1 machine owns cameras, Piper feedback, calibrated FK/IK and commands;
-2. this client owns Zero-WAM inference and action conversion;
-3. the existing Ascend service owns the model.
+The ROS service is now included in `robot_bridge/`; `/tmp/astra-manip-src` and the
+GPT-as-Policy checkout are no longer runtime dependencies. Reference license and
+source hashes are retained in that directory. It creates subscribers only and
+rejects all execution operations. Local DLS previews are approximate kinematic
+steps, not collision-checked trajectories or proof of reachability.
 
-The policy consumes `cam_high`, `cam_left_wrist`, and `cam_right_wrist` and
-produces 16-D actions: `xyz + xyzw quaternion + opening` for each arm. As in the
-RoboTwin evaluator, translation and rotation are relative to the EEF pose at
-episode start. Translation is mapped through the measured
-`policy_to_robot_rotation`; rotation deltas are post-multiplied onto the initial
-EEF rotation.
+## Dependencies
 
-## Preconditions
-
-- Identify the exact Piper variant and use its matching official URDF.
-- Restore and verify mechanical zero before trusting joint feedback.
-- Measure the two arm-base transforms, TCPs, FK roots, workspace and joint limits
-  in the control-service configuration.
-- Verify all three 640x480 RGB topics and the left/right wrist assignment.
-- Keep `/tmp/astra-manip-src/MOTION_INHIBITED` present until commissioning is
-  complete. Neither this client nor the service enables or homes an arm.
-
-The [official Piper SDK](https://github.com/agilexrobotics/piper_sdk) requires
-correct CAN activation and baud rate. On a master/slave installation, disconnect
-competing master commands and configure the slave mode as described in the
-[official dual-Piper guide](https://github.com/agilexrobotics/piper_sdk/blob/master/asserts/double_piper.MD)
-before accepting command topics. Select the matching model from the
-[official URDF repository](https://github.com/agilexrobotics/agx_arm_urdf),
-which has separate Piper, Piper H, Piper L and Piper X descriptions.
-
-## 1. Start the observation service on the robot computer
-
-Run inside its ROS Noetic environment. This is read-only and creates no command
-publishers:
+Run from the Zero-WAM repository root. On the client, Python 3.10+:
 
 ```bash
-PYTHONPATH=/tmp python -m astra-manip-src serve \
-  --backend piper_ros \
-  --config /path/to/measured-piper.json \
-  --output /tmp/zero-wam-observe-001 \
-  --port 19140 \
-  --task place_object_scale \
-  --max-steps 1
+python -m pip install -r evaluation/real_aloha/requirements-client.txt
 ```
 
-Forward port 19140 over SSH when Zero-WAM runs on another computer. The service
-binds loopback deliberately.
+On the ROS Noetic machine, use its existing ROS Python environment with numpy,
+scipy and msgpack, plus `rospy`, `cv_bridge`, `sensor_msgs`, `geometry_msgs`, and
+the installed driver's `piper_msgs`. Do not install model/PyTorch dependencies
+into the ROS environment. `robot_bridge` and its RPC codec work on Python 3.8.
 
-## 2. Create installation calibration
+## Register your human demonstration on the inference computer
 
-Copy `calibration.example.json`, measure the policy/task-frame axis mapping, and
-set `verified` to `true`. Identity is valid only when the real task frame uses
-the same forward/left/up axes as the evaluation scene. Do not infer this matrix
-from a single arm pose.
+Record a fixed-view MP4 that clearly shows the objects, human manipulation and
+completed task. Trim unrelated waiting. This is a practical first-test suggestion,
+not a checkpoint guarantee. Transfer it to the **inference host** using your
+normal file-transfer method (for example `scp`). The RPC client does not upload
+files. Then, on that host:
 
-## 3. Run shadow inference
+```bash
+python -m evaluation.real_aloha.register_demo \
+  --registry deployment/ascend/icl-registry.json \
+  --id my_scale_demo_v1 --video /data/demos/my_scale_demo.mp4
 
-Shadow mode sends no preview or execution request. It records the model action,
-absolute requested EEF target and the 4 mm / 0.025 rad limited target.
+./run_inference.sh --serve --host 127.0.0.1 --port 29056 \
+  --steps 50 --icl-registry deployment/ascend/icl-registry.json
+```
+
+The registration command validates video readability and prints its SHA256.
+It refuses to overwrite an existing ID. Register while the service is stopped;
+restart it to pick up registry changes. Video entries use this schema:
+
+```json
+{
+  "place_object_scale": "../../data/place_object_scale_icl.pth",
+  "my_scale_demo_v1": {"video": "/data/demos/my_scale_demo.mp4"}
+}
+```
+
+Legacy latent paths still work. Raw videos are sampled at the configured 12 fps,
+resized to 320x480 (height x width), VAE-encoded and cached at reset. The encoded
+result is not automatically saved to disk. Long videos consume more memory;
+video encoding on the deployed Ascend model still needs a real-service test.
+Keep the registered file immutable so the ID remains reproducible.
+
+## Start the read-only robot bridge
+
+Create a measured configuration outside version control. Required observation
+fields are `verified: true`, `base_transforms` (two measured 4x4
+robot-base-from-arm-base transforms), and `gripper_max_m` (measured opening).
+No made-up baseline or TCP values are supplied. For IK preview also provide:
+
+- `urdf_path`: matching Piper variant, relative to the config or absolute;
+- `joint_names`: six URDF joint names in feedback order;
+- `arm_base`, `ee_link`: calibrated base and TCP link in the URDF;
+- `fk_roots`: two measured robot-base-from-URDF-base transforms;
+- `joint_limits`: six `[min, max]` pairs in radians;
+- `workspace`: three `[min, max]` pairs in meters, in the common robot base.
+
+`ee_link` must represent the same TCP as the driver's measured end pose. Merely
+changing a config flag is not calibration. The bridge checks FK against feedback
+before each preview. Mechanical zero, base transforms and TCP must be verified
+on the installed hardware.
+
+```bash
+python -m evaluation.real_aloha.robot_bridge.server \
+  --config /path/to/measured-piper.json --port 19140
+```
+
+Topics follow the installed Modular ALOHA ROS1 driver:
+`/puppet/joint_left`, `/puppet/joint_right`, `/puppet/end_pose_left`,
+`/puppet/end_pose_right`, `/puppet/arm_status_left`, `/puppet/arm_status_right`;
+cameras `/camera_f/color/image_raw`, `/camera_l/color/image_raw`,
+`/camera_r/color/image_raw` (640x480 RGB). The official single-arm driver has a
+different topic contract. Faults or stale feedback are rejected.
+
+The service is single-client, loopback-only and exits after one client session.
+Forward it over SSH when needed. Restart for a new experiment. Use the existing
+SSH inference tunnel at client port 39056, or supply another policy host/port.
+
+## Shadow experiment and preview
+
+Copy `calibration.example.json` to `calibration.local.json`, set the measured
+`policy_to_robot_rotation`, and mark verified only after validation. This matrix
+maps translation axes; orientation deltas assume matching policy/robot TCP axis
+conventions. It does not fix a differing tool frame automatically.
 
 ```bash
 python -m evaluation.real_aloha.run_policy \
-  --mode shadow \
-  --robot-host 127.0.0.1 --robot-port 19140 \
-  --policy-host 127.0.0.1 --policy-port 39056 \
+  --mode shadow --robot-port 19140 --policy-port 39056 \
   --prompt "Use one arm to grab the object and put it on the scale" \
-  --icl-id place_object_scale \
+  --icl-id my_scale_demo_v1 \
   --calibration evaluation/real_aloha/calibration.local.json \
   --output results/real-aloha/shadow-001 \
-  --max-decisions 1 --max-actions 1
+  --max-decisions 1 --max-actions 16
 ```
 
-Inspect `action_0000.json`, camera recordings from the service, and the IK/FK
-commissioning report before progressing.
+Use `--mode preview` with the same arguments to obtain bounded IK from the
+read-only bridge. Grippers remain at measured openings by default. Each shadow
+or preview decision is a fresh policy episode; stationary observations are not
+fed back as though predicted motions were executed.
 
-## 4. Preview and commissioned motion
+Outputs include:
 
-`preview` asks the control service for bounded IK but does not call `chunk_step`.
-`execute` performs the service's preview-and-execute handshake. Both require a
-motion-capable service with its measured configuration. Start with one action;
-the service independently enforces 5 mm / 0.03 rad EEF limits, 0.01 rad joint
-steps, workspace limits, fresh feedback and exact proposal identity.
+- `manifest.json`: arguments, calibration and server metadata;
+- `prediction_*.npy`: complete raw policy chunks;
+- `action_*.json`: requested/limited poses, preview diagnostics, measured feedback,
+  inference latency and command status;
+- `observation_*.npz`: lossless three-camera frames, state, EEF and wall timestamp;
+- `observations.mp4`: head/left/right montage at **5 fps for inspection**, not real
+  control timing; `--no-video` disables MP4 while retaining NPZ snapshots;
+- `summary.json`: prediction and acknowledged execution counts, errors and cleanup
+  errors. `success: null` means task success has not been evaluated.
+
+For a text-only comparison use `--no-icl`. This now defaults to text guidance 5;
+ICL defaults remain video/text guidance -1 and ICL guidance 5.
+
+## Execution boundary and history protocol
+
+The bundled robot bridge cannot execute, enable, home, zero or disable hardware.
+The client's existing `execute` interface is for a separately commissioned motion
+service. No complete real task or autonomous grasp is claimed here. It also
+requires inference metadata `executed_action_history: true` (restart the updated
+Ascend server), verified common coordinates and fresh feedback after inference.
+A prediction older than `--max-prediction-age` (default 60 seconds), or a robot
+state changed during inference, is rejected before sending targets.
+
+When continuing a complete execution chunk, the client maps **measured EEF and
+gripper feedback** back into the model's episode-relative action convention and
+sends `executed_actions`. The server validates observation/action alignment and
+normalizes this history. Legacy simulation calls retain the original predicted
+history path. A terminal partial chunk is not cached or padded. This corrects
+the old behavior where limited motion was followed by caching the unlimited
+prediction; it does not establish real-time tracking performance.
+
+The site still needs verification of control timing, driver speed, stopping,
+collision constraints, gripper contact and task success labeling before moving
+from single-step commissioning to continuous task trials.
+
+## Offline checks
 
 ```bash
-python -m evaluation.real_aloha.run_policy ... \
-  --mode preview --max-decisions 1 --max-actions 1
-
-python -m evaluation.real_aloha.run_policy ... \
-  --mode execute --max-decisions 1 --max-actions 1
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+  tests/test_real_aloha_action_adapter.py tests/test_real_aloha_deployment.py
 ```
 
-Grippers are held at measured openings by default. Add `--follow-grippers` only
-after gripper direction, range and contact-stop behavior have been commissioned.
+The tests use synthetic observations and fake policies, exercise the production
+cache-update method without model weights, and do not connect to hardware.
+Official references: [Piper SDK](https://github.com/agilexrobotics/piper_sdk),
+[dual-arm mode guide](https://github.com/agilexrobotics/piper_sdk/blob/master/asserts/double_piper.MD),
+[variant-specific URDFs](https://github.com/agilexrobotics/agx_arm_urdf).

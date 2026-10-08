@@ -1,0 +1,11 @@
+{
+  "source": "GPT-as-Policy local reference",
+  "commit": "81da7c593c6a83f677103748463ec900e58f3d58",
+  "files": {
+    "real_robot_server/piper_ros.py": "0831f0ec027dc998e20401fd61372f1ea12a73462d1803df17058fa5b1a1a380",
+    "robodojo_server/kinematics.py": "b795110599c81429e3bca8275560abbd008bd774346b35e82ecc9b72203c1201",
+    "real_robot_server/contract.py": "c8166d6534b4eb53206a42f3432ee3ea7962713165d21de8d6ee6fdfa2bff4e4",
+    "robodojo_server/action_edit_kinematics.py": "c2087834b36a8d10e032baf8668ac6089af0455697cff91e25049831d9182fd3"
+  },
+  "adaptations": "ROS backend reduced to subscribers only; ArmFK and geometry extracted; no temporary-directory dependency"
+}

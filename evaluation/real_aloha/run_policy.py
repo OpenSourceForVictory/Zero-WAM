@@ -28,11 +28,6 @@ def _formatted_observation(observation, prompt):
     return result
 
 
-def _write_json(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
-
-
 def _load_calibration(path):
     data = json.loads(Path(path).read_text())
     rotation = np.asarray(data.get("policy_to_robot_rotation"), dtype=np.float64)
@@ -44,42 +39,72 @@ def _load_calibration(path):
 
 
 def run_episode(args, robot=None, policy=None):
+    from .action_adapter import observation_action
+    from .recording import Recorder, write_json
+
+    calibration, axis_map = _load_calibration(args.calibration)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=False)
-    calibration, axis_map = _load_calibration(args.calibration)
-    owns_robot = robot is None
-    owns_policy = policy is None
-    robot = robot or PiperControlClient(
-        args.robot_host, args.robot_port, args.robot_timeout
-    )
-    policy = policy or WebsocketClientPolicy(
-        host=args.policy_host,
-        port=args.policy_port,
-        connect_timeout=args.policy_connect_timeout,
-        request_timeout=args.policy_timeout,
-    )
-    executed = 0
-    decisions = 0
+    recorder = Recorder(output, video=not getattr(args, "no_video", False))
+    owns_robot, owns_policy = robot is None, policy is None
+    count = executed = decisions = 0
     finish_reason = "zero_wam_completed"
+    error = None
+    cleanup_errors = []
+    metadata = {}
     try:
-        reset = robot.reset(policy_version="zero-wam-real-v1", seed=args.seed)
-        observation = robot.observation()
-        metadata = reset.get("metadata", {})
-        if args.mode == "execute" and not metadata.get("motion_enabled", False):
-            raise RuntimeError("Robot control service reports motion_enabled=false")
-
-        initial_positions = np.asarray(observation["eef_positions"], np.float64)
-        initial_quaternions = np.asarray(
-            observation["eef_quaternions_wxyz"], np.float64
+        # Model connection failure must still close an already-created robot socket.
+        robot = robot or PiperControlClient(
+            args.robot_host, args.robot_port, args.robot_timeout
         )
+        policy = policy or WebsocketClientPolicy(
+            host=args.policy_host,
+            port=args.policy_port,
+            connect_timeout=args.policy_connect_timeout,
+            request_timeout=args.policy_timeout,
+        )
+        metadata = (
+            policy.get_server_metadata()
+            if hasattr(policy, "get_server_metadata")
+            else {}
+        )
+        reset = robot.reset(policy_version="zero-wam-real-v2", seed=args.seed)
+        robot_metadata = reset.get("metadata", {})
+        if args.mode == "execute" and not robot_metadata.get("motion_enabled", False):
+            raise RuntimeError("Robot control service reports motion_enabled=false")
+        if args.mode == "execute" and not metadata.get(
+            "executed_action_history", False
+        ):
+            raise RuntimeError(
+                "Inference server lacks executed_action_history capability; update it first"
+            )
+        if args.mode == "preview" and not robot_metadata.get("readonly_preview", False):
+            raise RuntimeError("Preview requires a read-only IK service")
+        if (
+            args.mode in ("preview", "execute")
+            and robot_metadata.get("frame") != "robot_base"
+        ):
+            raise RuntimeError("Calibrated common robot_base frame required")
+        write_json(
+            output / "manifest.json",
+            dict(
+                arguments=vars(args)
+                | {"output": str(args.output), "calibration": str(args.calibration)},
+                calibration=calibration,
+                robot=robot_metadata,
+                policy=metadata,
+                video_note="Inspection montage at 5 fps; NPZ timestamps are wall time, not control rate",
+            ),
+        )
+        observation = robot.observation()
+        recorder.observe(observation)
         adapter = ActionAdapter(
-            initial_positions,
-            initial_quaternions,
+            observation["eef_positions"],
+            observation["eef_quaternions_wxyz"],
             axis_map,
             hold_grippers=not args.follow_grippers,
             gripper_threshold=float(calibration.get("gripper_threshold", 0.5)),
         )
-
         reset_request = dict(
             reset=True,
             prompt=args.prompt,
@@ -90,111 +115,161 @@ def run_episode(args, robot=None, policy=None):
         )
         if not args.no_icl:
             reset_request["icl_id"] = args.icl_id
+        first_observation = _formatted_observation(observation, args.prompt)
         policy.infer(reset_request)
-
         first = True
-        # The released evaluator always feeds the episode's first observation to
-        # the generation call. Later observations enter through the KV-cache
-        # update below; replacing this value would change the policy contract.
-        episode_initial_observation = _formatted_observation(observation, args.prompt)
-        while decisions < args.max_decisions and executed < args.max_actions:
+        while decisions < args.max_decisions and count < args.max_actions:
+            # Shadow/preview are independent predictions of a stationary scene,
+            # not synthetic executed trajectories inserted into the model cache.
+            if decisions and args.mode != "execute":
+                policy.infer(reset_request)
+                first = True
+                first_observation = _formatted_observation(observation, args.prompt)
+                adapter = ActionAdapter(
+                    observation["eef_positions"],
+                    observation["eef_quaternions_wxyz"],
+                    axis_map,
+                    hold_grippers=not args.follow_grippers,
+                    gripper_threshold=float(calibration.get("gripper_threshold", 0.5)),
+                )
+            before = np.asarray(observation["states"]).copy()
+            started = time.monotonic()
             response = policy.infer(
                 dict(
-                    obs=episode_initial_observation,
+                    obs=first_observation,
                     prompt=args.prompt,
                     save_visualization=False,
                     video_guidance_scale=args.video_guidance_scale,
                     action_guidance_scale=args.action_guidance_scale,
                 )
             )
-            action_chunk = np.asarray(response["action"], dtype=np.float32)
-            if action_chunk.ndim != 3 or action_chunk.shape[0] != 16:
+            inference_seconds = time.monotonic() - started
+            actions = np.asarray(response["action"], np.float32)
+            if (
+                actions.ndim != 3
+                or actions.shape[0] != 16
+                or actions.shape[1] != 2
+                or actions.shape[2] <= 0
+                or actions.shape[2] % 4
+                or not np.isfinite(actions).all()
+            ):
                 raise ValueError(
-                    f"Expected action shape (16, frames, steps), got {action_chunk.shape}"
+                    "Expected a finite (16, 2, positive multiple of 4) action chunk"
                 )
-            if action_chunk.shape[2] % 4:
-                raise ValueError("Action steps must be divisible by four")
-            action_per_frame = action_chunk.shape[2] // 4
+            np.save(output / ("prediction_%04d.npy" % decisions), actions)
+            history = np.zeros_like(actions)
+            observation = robot.observation()  # fresh feedback after slow inference
+            if args.mode == "execute":
+                if inference_seconds > getattr(args, "max_prediction_age", 60):
+                    raise RuntimeError("Prediction too old to execute")
+                if np.max(np.abs(np.asarray(observation["states"]) - before)) > 0.002:
+                    raise RuntimeError(
+                        "Robot moved during inference; prediction discarded"
+                    )
             key_frames = []
-            start_frame = 1 if first else 0
-            stop_episode = False
-            for frame_index in range(start_frame, action_chunk.shape[1]):
-                for step_index in range(action_chunk.shape[2]):
-                    if executed >= args.max_actions:
-                        stop_episode = True
+            complete = True
+            for f in range(int(first), actions.shape[1]):
+                for j in range(actions.shape[2]):
+                    if count >= args.max_actions:
+                        complete = False
                         break
-                    model_action = action_chunk[:, frame_index, step_index]
-                    current_openings = np.asarray(observation["states"])[[6, 13]]
-                    requested = adapter.absolute_targets(model_action, current_openings)
-                    targets, limit_diagnostics = limit_targets(
-                        observation,
-                        requested,
-                        args.max_translation,
-                        args.max_rotation,
+                    if args.mode == "execute" and time.monotonic() - started > getattr(
+                        args, "max_prediction_age", 60
+                    ):
+                        raise RuntimeError("Prediction expired during chunk execution")
+                    observation = robot.observation()
+                    requested = adapter.absolute_targets(
+                        actions[:, f, j], np.asarray(observation["states"])[[6, 13]]
+                    )
+                    targets, diagnostics = limit_targets(
+                        observation, requested, args.max_translation, args.max_rotation
                     )
                     record = dict(
                         decision=decisions,
-                        action_index=executed,
-                        frame_index=frame_index,
-                        step_index=step_index,
+                        action_index=count,
                         mode=args.mode,
-                        model_action=model_action.tolist(),
+                        model_action=actions[:, f, j],
                         requested_targets=requested,
                         limited_targets=targets,
-                        limit_diagnostics=limit_diagnostics,
+                        limit_diagnostics=diagnostics,
+                        inference_seconds=inference_seconds,
+                        status="prepared",
                         timestamp=time.time(),
                     )
+                    path = output / ("action_%04d.json" % count)
+                    write_json(
+                        path, record
+                    )  # preserve intent even if RPC execution is uncertain
                     if args.mode in ("preview", "execute"):
                         proposal = robot.preview_eef(targets)
                         record["joint_proposal"] = proposal
                         if args.mode == "execute":
-                            result = robot.execute(proposal)
-                            record["execution"] = result
-                    _write_json(output / f"action_{executed:04d}.json", record)
-                    executed += 1
-
+                            record["execution"] = robot.execute(proposal)
+                            executed += 1
                     observation = robot.observation()
-                    if (step_index + 1) % action_per_frame == 0:
+                    history[:, f, j] = observation_action(adapter, observation)
+                    record.update(
+                        status="acknowledged" if args.mode == "execute" else "observed",
+                        measured_action=history[:, f, j],
+                        observation=recorder.observe(observation),
+                    )
+                    write_json(path, record)
+                    count += 1
+                    if (j + 1) % (actions.shape[2] // 4) == 0:
                         key_frames.append(
                             _formatted_observation(observation, args.prompt)
                         )
-                if stop_episode:
+                if not complete:
                     break
-
-            if key_frames:
+            decisions += 1
+            continuing = decisions < args.max_decisions and count < args.max_actions
+            # Never pad incomplete feedback or pretend unexecuted actions happened.
+            if args.mode == "execute" and continuing:
+                if not complete:
+                    raise RuntimeError("Cannot continue from a partial action chunk")
                 policy.infer(
                     dict(
                         obs=key_frames,
                         compute_kv_cache=True,
+                        executed_actions=history,
                         imagine=False,
                         save_visualization=False,
-                        state=action_chunk,
                     )
                 )
-            decisions += 1
             first = False
-            if stop_episode:
-                break
-    except Exception as exc:
-        finish_reason = f"zero_wam_error:{type(exc).__name__}"
+    except BaseException as exc:
+        finish_reason = "zero_wam_error:" + type(exc).__name__
+        error = str(exc)
         raise
     finally:
+        # Cleanup must not mask the original execution error or prevent other cleanup.
+        for operation in (
+            lambda: (
+                robot.finish(finish_reason)
+                if robot and getattr(robot, "identity", None)
+                else None
+            ),
+            lambda: robot.close() if robot and owns_robot else None,
+            lambda: policy.close() if policy and owns_policy else None,
+            recorder.close,
+        ):
+            try:
+                operation()
+            except BaseException as exc:
+                cleanup_errors.append(str(exc))
         summary = dict(
             mode=args.mode,
             decisions=decisions,
-            actions=executed,
+            actions=count,
+            executed_actions=executed,
             finish_reason=finish_reason,
+            error=error,
+            cleanup_errors=cleanup_errors,
+            observation_count=recorder.count,
+            success=None,
             calibration=str(args.calibration),
         )
-        _write_json(output / "summary.json", summary)
-        try:
-            if getattr(robot, "identity", None) is not None:
-                robot.finish(finish_reason)
-        finally:
-            if owns_robot:
-                robot.close()
-            if owns_policy:
-                policy.close()
+        write_json(output / "summary.json", summary)
     return summary
 
 
@@ -219,7 +294,9 @@ def parse_args(argv=None):
     parser.add_argument("--max-translation", type=float, default=0.004)
     parser.add_argument("--max-rotation", type=float, default=0.025)
     parser.add_argument("--follow-grippers", action="store_true")
-    parser.add_argument("--video-guidance-scale", type=float, default=-1.0)
+    parser.add_argument("--video-guidance-scale", type=float, default=None)
+    parser.add_argument("--no-video", action="store_true")
+    parser.add_argument("--max-prediction-age", type=float, default=60.0)
     parser.add_argument("--action-guidance-scale", type=float, default=1.0)
     parser.add_argument("--icl-guidance-scale", type=float, default=5.0)
     parser.add_argument("--calibration", type=Path, required=True)
@@ -229,6 +306,21 @@ def parse_args(argv=None):
         parser.error("--max-decisions and --max-actions must be positive")
     if args.mode == "shadow" and args.follow_grippers:
         parser.error("--follow-grippers only applies to preview/execute")
+    if args.video_guidance_scale is None:
+        args.video_guidance_scale = 5.0 if args.no_icl else -1.0
+    if args.no_icl and args.video_guidance_scale <= 1:
+        parser.error("Text-only comparison requires --video-guidance-scale > 1")
+    if (
+        not np.isfinite(
+            [args.max_translation, args.max_rotation, args.max_prediction_age]
+        ).all()
+        or min(args.max_translation, args.max_rotation, args.max_prediction_age) <= 0
+    ):
+        parser.error("Limits must be finite and positive")
+    if args.mode == "execute" and (
+        args.max_translation > 0.005 or args.max_rotation > 0.03
+    ):
+        parser.error("Commissioning limits: 5 mm / 0.03 rad")
     return args
 
 

@@ -849,6 +849,14 @@ class VA_Server:
         return self.postprocess_action(actions)
 
     def _compute_icl_kv_cache(self, obs):
+        # Validate before mutating the streaming VAE or attention cache.
+        executed = obs.get("executed_actions")
+        if executed is not None:
+            from .utils.real_action_history import validate_history
+            expected = (len(self.job_config.used_action_channel_ids),
+                        self.job_config.frame_chunk_size,
+                        self.job_config.action_per_frame)
+            validate_history(executed, obs.get("obs", []), expected, self.chunk_idx == 0)
         # Remove the generated video chunk before replacing it with encoded
         # observations. Window pruning happens after the matching action cache
         # is appended.
@@ -863,6 +871,13 @@ class VA_Server:
         # Cache normalized model output directly to avoid a postprocess/preprocess
         # round trip.
         action_input = self.last_predicted_actions.to(latent_input)
+        if executed is not None:
+            action_input = self.preprocess_action(np.asarray(executed, dtype=np.float32)).to(latent_input)
+            action_input[:, ~self.action_mask] = 0
+            if self.chunk_idx == 0:
+                action_input[:, :, 0] = 0
+        if executed is not None and action_input.shape[2] != latent_input.shape[2]:
+            raise ValueError("Observation/action latent frame count mismatch")
 
         video_input = self._prepare_icl_stream(
             latent_input, 0, "video", OBSERVATION_CACHE_TYPE

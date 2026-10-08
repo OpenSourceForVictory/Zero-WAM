@@ -36,3 +36,6 @@ data/
 /cache/
 /models/
 /deployment/ascend/*.patch
+
+# Measured local robot installation settings
+/evaluation/real_aloha/*.local.json

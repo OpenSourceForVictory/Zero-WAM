@@ -348,3 +348,13 @@ If you find Zero-WAM useful, please cite:
   url = {https://arxiv.org/abs/2608.26103}
 }
 ```
+
+
+### Experimental dual-Piper real-robot client
+
+See [the split ALOHA deployment guide](evaluation/real_aloha/README.md) for
+human MP4 registration on the inference host, the bundled ROS1 read-only bridge,
+shadow prediction, and calibrated local IK preview. Experiments save three-view
+video, lossless observations, predicted/measured trajectories and a run summary.
+The bridge never sends robot commands. This integration has offline validation;
+Piper hardware commissioning and real task success remain unverified.
