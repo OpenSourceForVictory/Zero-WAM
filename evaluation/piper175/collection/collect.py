@@ -50,7 +50,7 @@ def verify_sense_hubs(p):
     devices=list(Path('/sys/bus/usb/devices').iterdir())
     result={}
     for side,port,code in zip(('left','right'),p['serial_ports'],p['tracker_codes']):
-        if side not in p.get('active_arms',['left','right']): continue
+        if side not in p.get('sense_arms',p.get('active_arms',['left','right'])): continue
         tty=Path(port).resolve().name
         device=(Path('/sys/class/tty')/tty/'device').resolve()
         serial_usb=next((x for x in device.parents if (x/'idVendor').exists()),None)
@@ -84,7 +84,7 @@ def check(p, require_can=True):
                    'piper_sdk','pinocchio','casadi','meshcat','cv2','h5py'):
         item('import '+module,lambda module=module: bool(importlib.import_module(module)))
     for arm,port in zip(('left','right'),p['serial_ports']):
-        if arm not in p.get('active_arms',['left','right']): continue
+        if arm not in p.get('sense_arms',p.get('active_arms',['left','right'])): continue
         item(port, lambda port=port: Path(port).exists() and os.access(port,os.R_OK|os.W_OK))
     item('Sense/Tracker hub mapping',lambda: verify_sense_hubs(p))
     if require_can: item('CAN mapping',lambda: channels(p))
@@ -195,7 +195,7 @@ def record(p,args):
               'vector_order':vector_order(p),
               'active_arms':p.get('active_arms',['left','right']),
               'units':'joint targets/feedback radians; gripper targets/feedback meters',
-              'action_semantics':'ROS requested joint/gripper targets before legacy driver conversion; NOT measured state',
+              'action_semantics':p.get('action_semantics','ROS requested joint/gripper targets before legacy driver conversion; NOT measured state'),
               'legacy_hashes':json.loads((ROOT/'legacy_manifest.json').read_text()),
               'calibration_sha256':hashlib.sha256((Path.home()/'.config/libsurvive/config.json').read_bytes()).hexdigest()
                   if (Path.home()/'.config/libsurvive/config.json').exists() else None,
@@ -281,6 +281,8 @@ def export(episode):
         f.create_dataset('timestamp',data=[r['time'] for r in aligned])
         f.create_dataset('observations/qpos',data=[r['state'] for r in aligned])
         f.create_dataset('action',data=[r['action'] for r in aligned])
+        if 'control_mode' in aligned[0]['streams']:
+            f.create_dataset('control_mode',data=[r['streams']['control_mode']['message']['data'] for r in aligned],dtype=h5py.string_dtype())
         f.create_dataset('observations/image_archives',data=[r['frame'] for r in aligned],dtype=h5py.string_dtype())
         f.attrs['manifest']=(episode/'manifest.json').read_text()
     tmp.rename(dest)
@@ -318,6 +320,8 @@ def main():
             return 2 if issues else 0
         finally: obs.close()
     if args.command in ('sensors','teleop'):
+        if args.command=='teleop' and p.get('control_backend')=='single_sense_switch':
+            raise RuntimeError('Use bash switch.sh serve --execute for this profile; legacy dual teleop requires two Sense devices')
         if not args.execute:
             print(f'Plan only: {args.command}. Add --execute to start. No processes started.'); return 0
         lock=open(ROOT/f'.{args.command}.lock','w')

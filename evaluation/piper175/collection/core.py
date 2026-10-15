@@ -46,6 +46,12 @@ def decode_cameras(payload, p, now):
 def valid_message(row):
     """Validate numeric geometry without reinterpreting raw message units."""
     d = row['message']
+    if row['stream']=='control_mode':
+        try:
+            mode=json.loads(d['data'])
+            return mode.get('execute') is True and mode.get('error') is None and mode.get('phase') in ('paused','preparing','active')
+        except (KeyError,ValueError,TypeError):
+            return False
     if row['stream'].startswith('sense_'):
         return not d.get('error',True) and bool(np.isfinite([d.get('angle',float('nan')),d.get('distance',float('nan'))]).all())
     if row['stream'].startswith(('state_', 'action_')):

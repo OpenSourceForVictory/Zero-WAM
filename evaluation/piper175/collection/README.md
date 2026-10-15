@@ -1,3 +1,8 @@
+# 当前入口：单 Sense 切换双臂采集
+
+当前需求为一个正常 Sense 顺序操控两臂、持续记录双臂和三相机，详见 [DUAL_COLLECTION.md](DUAL_COLLECTION.md)。
+以下单左臂及双 Sense 章节保留为历史测试记录，不作为当前双臂采集入口。
+
 # 175：双 Pika Sense 遥操作双 Piper 的采集流程
 
 配置经用户确认：双 Pika Sense、双 Piper 原装夹爪，保留现有三路 Orbbec。

@@ -1,0 +1,9 @@
+{
+  "source_host": "192.168.8.174",
+  "source_directory": "/home/agilex/cobot_magic/collect_data",
+  "copied_at": "2026-10-15",
+  "files": {
+    "convert_to_lerobot_v30.py": "065718f1ce9e0b8d5bf4d5e3a037b1173d6a46a7deca86a10cf3d625939a233e",
+    "convert_to_lerobot_v21.py": "979b5830ddcc184589d6d650d6d94bd564752586739d0c8560d78a6a531c55ec"
+  }
+}

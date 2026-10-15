@@ -17,6 +17,7 @@ os.environ['ROS_DOMAIN_ID']='173'
 import rclpy
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import String
 
 
 def main():
@@ -27,17 +28,20 @@ def main():
         v[0]=f'/{ident}/{key}'
     profile=out/'profile.json';profile.write_text(json.dumps(p))
     rclpy.init();node=rclpy.create_node(ident)
-    pubs={k:node.create_publisher(PoseStamped if k.startswith('pika_') else JointState,v[0],10)
+    pubs={k:node.create_publisher(String if k=='control_mode' else PoseStamped if k.startswith('pika_') else JointState,v[0],10)
           for k,v in p['required_topics'].items()}
     stop=threading.Event()
     def publish():
         while not stop.is_set():
             for key,pub in pubs.items():
-                if key.startswith('pika_'):
+                if key=='control_mode':
+                    msg=String(data=json.dumps({'phase':'active','selected_arm':'left','generation':1,'execute':True,'error':None}))
+                elif key.startswith('pika_'):
                     msg=PoseStamped();msg.pose.orientation.w=1.
                 else:
                     msg=JointState();msg.position=[.02 if key.startswith('action_') else .01]*6+[.01]
-                msg.header.stamp=node.get_clock().now().to_msg();pub.publish(msg)
+                if hasattr(msg,'header'):msg.header.stamp=node.get_clock().now().to_msg()
+                pub.publish(msg)
             stop.wait(.01)
     thread=threading.Thread(target=publish);thread.start()
     try:

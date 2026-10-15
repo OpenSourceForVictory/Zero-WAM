@@ -1,0 +1,73 @@
+{
+  "name": "single_sense_dual_piper_switch_v1",
+  "legacy_root": "/home/piperpika/pika_ros",
+  "data_root": "/home/piperpika/datasets/pika_piper",
+  "camera_url": "http://127.0.0.1:8080",
+  "camera_serials": [
+    "CC1C8100041",
+    "CC1C810002Y",
+    "CC1C8100015"
+  ],
+  "camera_roles": [
+    "high",
+    "left",
+    "right"
+  ],
+  "serial_ports": [
+    "/dev/pika-sense-left",
+    "/dev/pika-sense-right"
+  ],
+  "tracker_codes": [
+    "LHR-5E557D95",
+    "LHR-F7A7E2FD"
+  ],
+  "can_usb_ports": [
+    "1-2.2:1.0",
+    "1-2.1:1.0"
+  ],
+  "hz": 10,
+  "max_age": 0.2,
+  "max_skew": 0.1,
+  "min_free_gb": 10,
+  "required_topics": {
+    "action_left": [
+      "/pika_switch/action_l",
+      "sensor_msgs/msg/JointState"
+    ],
+    "action_right": [
+      "/pika_switch/action_r",
+      "sensor_msgs/msg/JointState"
+    ],
+    "state_left": [
+      "/pika_switch/state_l",
+      "sensor_msgs/msg/JointState"
+    ],
+    "state_right": [
+      "/pika_switch/state_r",
+      "sensor_msgs/msg/JointState"
+    ],
+    "pika_left": [
+      "/pika_pose_l",
+      "geometry_msgs/msg/PoseStamped"
+    ],
+    "control_mode": [
+      "/pika_switch/mode",
+      "std_msgs/msg/String"
+    ]
+  },
+  "optional_topics": {
+    "sense_left": [
+      "/sensor/gripper_l/data",
+      "data_msgs/msg/Gripper"
+    ]
+  },
+  "active_arms": [
+    "left",
+    "right"
+  ],
+  "sense_arms": [
+    "left"
+  ],
+  "action_semantics": "Targets successfully sent by single-Sense dual gateway, after SDK integer conversion; inactive arm receives explicit hold targets",
+  "control_backend": "single_sense_switch"
+}

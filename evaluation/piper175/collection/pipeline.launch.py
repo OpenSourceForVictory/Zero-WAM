@@ -23,7 +23,7 @@ def setup(context):
                               'publish_rate':100.0,'dist_limit':0.2,'angle_limit':0.2,
                               'linear_limit':5.0,'angular_limit':20.0}]))
         for i,side in enumerate(('l','r')):
-            if ('left','right')[i] not in p.get('active_arms',['left','right']): continue
+            if ('left','right')[i] not in p.get('sense_arms',p.get('active_arms',['left','right'])): continue
             remaps=[('/imu/data',f'/sensor/imu_{side}/data'),
                     ('/gripper/data',f'/sensor/gripper_{side}/data'),
                     ('/gripper/ctrl',f'/sensor/gripper_{side}/ctrl'),

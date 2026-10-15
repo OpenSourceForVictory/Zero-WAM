@@ -167,3 +167,101 @@ def test_repeated_camera_timestamp_invalidates_episode(dataset):
     rows[1]['source_times']=rows[0]['source_times']
     p.write_text('\n'.join(json.dumps(x) for x in rows))
     assert not core.build_index(dataset)[1]['valid']
+
+
+def test_switch_generation_rejects_old_arm_targets(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    from switch_model import Selection
+    mode=Selection();left=mode.prepare('left');mode.phase='active'
+    assert mode.accept(left)
+    mode.pause();assert not mode.accept(left)
+    right=mode.prepare('right');mode.phase='active'
+    assert mode.accept(right) and not mode.accept(left)
+    with pytest.raises(ValueError):mode.prepare('both')
+
+
+def test_switch_action_matches_hardware_conversion(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    from switch_model import encoded_target,sent_target
+    q=[0.,.1,-.2,.3,-.4,.5,.096707]
+    joints,grip=encoded_target(q)
+    assert grip==80000 and sent_target(q)[6]==.08
+    assert joints[1]==5730
+    assert encoded_target([0.]*6+[.0001])[1]==0
+    with pytest.raises(ValueError):encoded_target([0.]*5+[float('nan'),0.])
+
+
+def test_single_sense_dual_profile_records_both_arms(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    from core import load_profile,action_vector,vector_order
+    p=load_profile(ROOT/'profile_single_sense_dual.json')
+    assert p['sense_arms']==['left'] and p['active_arms']==['left','right']
+    assert 'pika_right' not in p['required_topics']
+    assert 'control_mode' in p['required_topics']
+    rows={'state_left':{'message':{'position':[1,2,3,4,5,6,.01]}},
+          'state_right':{'message':{'position':[7,8,9,10,11,12,.02]}}}
+    assert action_vector(rows,p,'state')==[1,2,3,4,5,6,7,8,9,10,11,12,.01,.02]
+    assert vector_order(p)=='left6,right6,left_gripper,right_gripper; rad,m'
+
+
+def test_switch_mode_rejects_fault_and_preview():
+    def mode(**kw):return {'stream':'control_mode','message':{'data':json.dumps({'execute':True,'phase':'active','error':None,**kw})}}
+    assert core.valid_message(mode())
+    assert core.valid_message(mode(phase='paused'))
+    assert not core.valid_message(mode(execute=False))
+    assert not core.valid_message(mode(phase='fault',error='stale'))
+
+
+def test_aloha_reorder_is_left7_right7(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    from export_aloha import aloha_vector
+    sample={'streams':{'state_left':{'message':{'position':[1,2,3,4,5,6,.01]}},
+                       'state_right':{'message':{'position':[7,8,9,10,11,12,.02]}}}}
+    assert aloha_vector(sample,'state')==[1,2,3,4,5,6,.01,7,8,9,10,11,12,.02]
+
+
+def test_dual_gateway_publishes_only_sent_rounded_targets(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    from switch_control import Runtime
+    from switch_model import sent_target
+    class Arm:
+        def __init__(self):self.commands=[]
+        def MotionCtrl_2(self,*args):self.commands.append(('mode',args))
+        def JointCtrl(self,*args):self.commands.append(('joints',args))
+        def GripperCtrl(self,*args):self.commands.append(('gripper',args))
+    class Pub:
+        def __init__(self):self.messages=[]
+        def publish(self,msg):self.messages.append(msg)
+    runtime=Runtime.__new__(Runtime)
+    runtime.arms={side:Arm() for side in ('left','right')}
+    runtime.action_pub={side:Pub() for side in runtime.arms}
+    runtime.targets={'left':[.123456]*6+[.0967],'right':[-.23456]*6+[.01234]}
+    runtime.js=lambda q:q
+    runtime.send_targets()
+    for side in runtime.arms:
+        assert runtime.action_pub[side].messages==[sent_target(runtime.targets[side])]
+        assert runtime.arms[side].commands[0]==('mode',(1,1,30))
+    assert runtime.arms['left'].commands[-1]==('gripper',(80000,1000,1,0))
+
+
+def test_aloha_export_embeds_rgb_and_preserves_switch_labels(tmp_path,monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    import export_aloha
+    import h5py
+    episode=tmp_path/'raw';episode.mkdir();(episode/'frames').mkdir()
+    image=np.zeros((480,640,3),np.uint8);image[:]=[10,20,30]
+    np.savez(episode/'frames/000000.npz',high=image,left=image,right=image)
+    meta={'profile':{'active_arms':['left','right'],'hz':10},'task':'test','action_semantics':'sent targets'}
+    (episode/'manifest.json').write_text(json.dumps(meta))
+    streams={kind+'_'+side:{'message':{'position':[value]*6+[.01]}} for kind,value in [('state',1),('action',2)] for side in ['left','right']}
+    streams['control_mode']={'message':{'data':json.dumps({'phase':'active','selected_arm':'right'})}}
+    aligned=[{'time':1.,'frame':'frames/000000.npz','streams':streams}]
+    monkeypatch.setattr(export_aloha,'build_index',lambda _: (aligned,{'valid':True}))
+    target=tmp_path/'episode_0.hdf5';export_aloha.export(episode,target)
+    with h5py.File(target) as f:
+        assert f['observations/images/cam_high'][0,0,0].tolist()==[30,20,10]
+        assert f['observations/qpos'].shape==(1,14)
+        assert f['action'][0,0]==2 and f['observations/qpos'][0,0]==1
+        assert json.loads(f['control_mode'].asstr()[0])['selected_arm']=='right'
+        assert f.attrs['color_order']=='RGB'
+    with pytest.raises(FileExistsError):export_aloha.export(episode,target)
