@@ -17,7 +17,11 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('endpoint',choices=['open','closed','motion'])
     parser.add_argument('--port',default='/dev/pika-sense-left')
+    parser.add_argument('--seconds',type=float,default=None)
     args=parser.parse_args()
+    duration=args.seconds if args.seconds is not None else (10 if args.endpoint=='motion' else 5)
+    if not 1 <= duration <= 60:
+        parser.error('--seconds must be between 1 and 60')
     port=str(Path(args.port).resolve(strict=True))
     busy=subprocess.run(['fuser',port],capture_output=True,text=True)
     if busy.returncode != 1:
@@ -36,7 +40,7 @@ def main():
         termios.tcsetattr(fd,termios.TCSANOW,attr)
         termios.tcflush(fd,termios.TCIFLUSH)
         print('SAMPLING NOW: '+args.endpoint,flush=True)
-        deadline=time.monotonic()+(10 if args.endpoint=='motion' else 5)
+        deadline=time.monotonic()+duration
         while time.monotonic()<deadline:
             if select.select([fd],[],[],.1)[0]: data.extend(os.read(fd,8192))
     finally:
@@ -54,7 +58,7 @@ def main():
         value=obj.get('rad')
         if 'error' not in obj and isinstance(value,(int,float)) and math.isfinite(value):
             values.append(value)
-    result={'endpoint':args.endpoint,'port':port,'samples':len(values),'directory':str(root),
+    result={'endpoint':args.endpoint,'seconds':duration,'port':port,'samples':len(values),'directory':str(root),
             'minimum':min(values) if values else None,'maximum':max(values) if values else None,
             'median':statistics.median(values) if values else None,
             'stable_sample':len(values)>=100 and max(values)-min(values)<=.05 if values else False,
