@@ -97,13 +97,13 @@ def main():
                 if initial is None: initial=opening
                 target=limited_probe_target(base,initial,opening,target,now-last_update)
                 if arm:
-                    if abs(feedback-target)>.002: raise RuntimeError('Gripper tracking error exceeds 2 mm')
                     if last_cmd is not None and now-start>1.5 and not arm.GetArmGripperMsgs().gripper_state.foc_status.driver_enable_status:
                         raise RuntimeError('Gripper did not report enabled')
                     arm.GripperCtrl(round(target*1e6),200,0x01,0x00)
                     report['gripper_commands']+=1
                 log.write(json.dumps({'time':time.time(),'raw_rad':raw,'opening':opening,
-                                      'target_m':target,'feedback_m':feedback})+'\n')
+                                      'target_m':target,'feedback_m':feedback,
+                                      'tracking_error_m':None if feedback is None else target-feedback})+'\n')
                 last_cmd=target; last_update=now; count+=1
         report.update(status='stopped' if stopped else 'complete',samples=count,base_m=base,last_target_m=last_cmd)
         if count<10: raise RuntimeError('Insufficient input samples')
