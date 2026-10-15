@@ -342,3 +342,21 @@ Hub 无唯一序列号，串口别名按端口绑定；本段左右指既有端�
 故障随原右侧 Sense 所在组合连接移动到另一上游端口，原右侧电脑 USB 端口不是故障的必要条件。
 结合两只 Tracker 在该组合下均失败，应优先检查该 Sense 的 Tracker 接口/内部 Hub、短线及供电；
 仍未区分这些组件或排除驱动对该 Hub 的兼容性问题，不据此断言 Sense 本体损坏。
+
+### 单变量 Sense 对照流程
+
+用户选择暂不进行 Tracker 直连工控机测试，改做 A → B → A。
+A 为原左手 Sense（内置 D405 242623072141），B 为原右手 Sense（242623072154）。
+固定右手 Tracker LHR-F7A7E2FD、同一根短线、同一根长线和电脑 USB 口，仅更换 Sense。
+各轮接线由现场确认，再核对 USB 拓扑和 D405 序列号，不根据端口名称猜测 Sense 身份。
+
+```bash
+cd ~/piper_runtime/collection
+python3 inspect_usb.py
+bash run.sh locator-check --seconds 60 --side right
+```
+
+检查器保存运行前后 USB 拓扑、位姿计数、探测全程平均帧率、首帧等待、最大帧间间隔、
+结束前静默时长和退出码。`--side right` 只要求右手输出，不会因左手未连接而直接失败。
+`passed` 仅表示基本输出检查，不代表定位精度或全程稳定性验收；间隔统计另行检查。
+每轮结果应结合内核日志记录。尚未完成 A/B/A；直连基准缺失，不能完全排除驱动兼容性。

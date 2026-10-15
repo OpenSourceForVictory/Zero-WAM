@@ -288,7 +288,9 @@ def main():
     parser.add_argument('--profile',default=str(ROOT/'profile.json'))
     subs=parser.add_subparsers(dest='command',required=True)
     subs.add_parser('check')
-    subs.add_parser('locator-check')
+    sub=subs.add_parser('locator-check')
+    sub.add_argument('--seconds',type=float,default=20)
+    sub.add_argument('--side',choices=['left','right','both'],default='both')
     subs.add_parser('streams')
     for name in ('sensors','teleop'):
         sub=subs.add_parser(name); sub.add_argument('--execute',action='store_true')
@@ -300,7 +302,7 @@ def main():
     if args.command=='check': return 0 if check(p) else 2
     if args.command=='locator-check':
         from probe_locator import run
-        return 0 if run(p) else 2
+        return 0 if run(p,seconds=args.seconds,side=args.side) else 2
     if args.command in ('validate','export'):
         if args.command=='validate': return 0 if validate(args.episode) else 2
         export(args.episode); return 0
