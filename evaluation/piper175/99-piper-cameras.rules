@@ -1,0 +1,4 @@
+# Dedicated camera access without desktop login.
+SUBSYSTEM=="video4linux", ATTRS{serial}=="CC1C8100015", OWNER="piperpika", GROUP="video", MODE="0660"
+SUBSYSTEM=="video4linux", ATTRS{serial}=="CC1C810002Y", OWNER="piperpika", GROUP="video", MODE="0660"
+SUBSYSTEM=="video4linux", ATTRS{serial}=="CC1C8100041", OWNER="piperpika", GROUP="video", MODE="0660"

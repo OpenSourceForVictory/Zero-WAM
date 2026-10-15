@@ -1,0 +1,209 @@
+{
+  "observation": "inference_logs/20261013_175652_938400_execute/initial_observation.npz",
+  "mode": "fixed observation replay, synthetic KV history; no actuation",
+  "delta_definition": "formatted observation ready -> decoded action response; includes transport and server trace I/O",
+  "controller_dt_s": 0.02,
+  "records": [
+    {
+      "chunk": 1,
+      "first_after_reset": true,
+      "shape": [
+        28,
+        2,
+        16
+      ],
+      "raw_H": 32,
+      "usable_raw_H": 16,
+      "infer": {
+        "total_s": 38.500910911000574,
+        "pack_s": 0.005154622999725689,
+        "send_wait_receive_s": 38.49572831600017,
+        "unpack_s": 2.7972000680165365e-05,
+        "request_bytes": 2765274
+      },
+      "d_at_50hz": 1925,
+      "delta_over_raw_horizon_50hz": 60.1576732984384,
+      "kv_timing": {
+        "total_s": 8.545611773000019,
+        "pack_s": 0.01407491099962499,
+        "send_wait_receive_s": 8.531518677999884,
+        "unpack_s": 1.8184000509791076e-05,
+        "request_bytes": 11064668
+      },
+      "paper_mapping": {
+        "delta_s": 38.500910911000574,
+        "nominal_dt_s": 0.02,
+        "raw_tensor_steps": 32,
+        "H_future_raw": 16,
+        "s_configured_raw": 16,
+        "s_executed_in_benchmark": 0,
+        "d_floor": 1925,
+        "H_minus_s_configured": 0,
+        "note": "raw action indices before spline; nominal rate, not measured execution cadence"
+      }
+    },
+    {
+      "chunk": 2,
+      "first_after_reset": false,
+      "shape": [
+        28,
+        2,
+        16
+      ],
+      "raw_H": 32,
+      "usable_raw_H": 32,
+      "infer": {
+        "total_s": 37.83817616899978,
+        "pack_s": 0.0016676300001563504,
+        "send_wait_receive_s": 37.8364656699996,
+        "unpack_s": 4.286900002625771e-05,
+        "request_bytes": 2765274
+      },
+      "d_at_50hz": 1891,
+      "delta_over_raw_horizon_50hz": 59.12215026406216,
+      "kv_timing": {
+        "total_s": 14.233769977999145,
+        "pack_s": 0.02231490699978167,
+        "send_wait_receive_s": 14.211432088999572,
+        "unpack_s": 2.298199979122728e-05,
+        "request_bytes": 22125676
+      },
+      "paper_mapping": {
+        "delta_s": 37.83817616899978,
+        "nominal_dt_s": 0.02,
+        "raw_tensor_steps": 32,
+        "H_future_raw": 32,
+        "s_configured_raw": 32,
+        "s_executed_in_benchmark": 0,
+        "d_floor": 1891,
+        "H_minus_s_configured": 0,
+        "note": "raw action indices before spline; nominal rate, not measured execution cadence"
+      }
+    },
+    {
+      "chunk": 3,
+      "first_after_reset": false,
+      "shape": [
+        28,
+        2,
+        16
+      ],
+      "raw_H": 32,
+      "usable_raw_H": 32,
+      "infer": {
+        "total_s": 37.372981649000394,
+        "pack_s": 0.0008034940001380164,
+        "send_wait_receive_s": 37.372110469999825,
+        "unpack_s": 6.768500043108361e-05,
+        "request_bytes": 2765274
+      },
+      "d_at_50hz": 1868,
+      "delta_over_raw_horizon_50hz": 58.395283826563116,
+      "paper_mapping": {
+        "delta_s": 37.372981649000394,
+        "nominal_dt_s": 0.02,
+        "raw_tensor_steps": 32,
+        "H_future_raw": 32,
+        "s_configured_raw": 32,
+        "s_executed_in_benchmark": 0,
+        "d_floor": 1868,
+        "H_minus_s_configured": 0,
+        "note": "raw action indices before spline; nominal rate, not measured execution cadence"
+      }
+    }
+  ],
+  "connect_metadata": {},
+  "reset_metadata": {
+    "prediction_trace_dir": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/prediction_traces/20261013_193110_6951d342",
+    "action_contract": "aloha_absolute_28_continuous_v2",
+    "checkpoint_contract_bound": true,
+    "chunk_frames": 2,
+    "norm_stat": {
+      "q01": [
+        9.889227867126465,
+        -335.6819610595703,
+        60.84034729003906,
+        -0.07465440779924393,
+        0.6620973348617554,
+        -0.4152814745903015,
+        0.005638206377625465,
+        4.29156494140625,
+        -180.13140106201172,
+        108.52033996582031,
+        -0.39158396422863007,
+        0.6713427901268005,
+        -0.15825298428535461,
+        0.05759535729885101,
+        -1.055815577507019,
+        0.00757069606333971,
+        -1.4629061222076416,
+        -1.7314304113388062,
+        -0.9768116772174835,
+        -1.0846329927444458,
+        -0.6155638694763184,
+        0.004204004071652889,
+        -2.2499358654022217,
+        -1.7529301643371582,
+        -0.9081608057022095,
+        -1.1213003396987915,
+        0.0,
+        0.0,
+        0.010700000450015068,
+        0.000699999975040555
+      ],
+      "q99": [
+        439.8946075439453,
+        50.311038970947266,
+        371.5571594238281,
+        0.4146513044834137,
+        0.9976378679275513,
+        0.05901091359555721,
+        0.7470921277999878,
+        451.48931884765625,
+        247.2466812133789,
+        437.37611389160156,
+        0.11141139268875122,
+        0.9955049753189087,
+        0.44702574610710144,
+        0.7185659408569336,
+        0.15718787908554077,
+        2.300776481628418,
+        -0.28606414794921875,
+        0.7962139248847961,
+        1.030190348625183,
+        1.4782220125198364,
+        0.6355721354484558,
+        2.2134865522384644,
+        -0.25538888573646545,
+        1.7374398708343506,
+        1.2180622220039368,
+        1.5645261406898499,
+        0.0,
+        0.0,
+        0.09969999641180038,
+        0.07100000232458115
+      ]
+    },
+    "model_path": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/aloha_step6000_validation/model",
+    "inference_steps": 50,
+    "server_timing": {
+      "infer_ms": 720.5191538669169
+    }
+  },
+  "reset_timing": {
+    "total_s": 0.8500752270001612,
+    "pack_s": 5.139000677445438e-06,
+    "send_wait_receive_s": 0.8500289619996693,
+    "unpack_s": 4.112599981453968e-05,
+    "request_bytes": 143
+  },
+  "summary": {
+    "n": 3,
+    "mean_s": 37.904022909666914,
+    "median_s": 37.83817616899978,
+    "min_s": 37.372981649000394,
+    "max_s": 38.500910911000574,
+    "std_population_s": 0.46282318435260733,
+    "subsequent_mean_s": 37.60557890900009
+  }
+}
