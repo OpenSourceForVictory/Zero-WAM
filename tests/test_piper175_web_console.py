@@ -143,3 +143,14 @@ def test_status_query_waits_for_switch_rpc(console,monkeypatch):
     assert not queried.wait(.1)
     release.set();control.join(2);query.join(2)
     assert queried.is_set()
+
+def test_delete_last_rejects_stale_list(console,monkeypatch):
+    rows=[{'id':'old','status':'saved','hdf5':'/test/episode_0.hdf5'},
+          {'id':'new','status':'saved','hdf5':'/test/episode_1.hdf5'}]
+    monkeypatch.setattr(console,'episodes',lambda name:rows)
+    calls=[];monkeypatch.setattr(console,'do_delete',lambda body:calls.append(body['episode']))
+    with pytest.raises(ValueError,match='已变化'):
+        console.do_delete_last({'task':'test','episode':'old'})
+    assert not calls
+    console.do_delete_last({'task':'test','episode':'new'})
+    assert calls==['new']

@@ -19,6 +19,7 @@
 <label class="field">任务提示词<textarea id="prompt" maxlength="2000" placeholder="例如：左臂拿起物体，右臂接过并放入容器"></textarea></label>
 <div class="recordbar" id="recordbar"><span><span class="dot"></span><span id="recordPhase">未录制</span></span><strong id="frames">0 帧</strong><span id="elapsed" class="hint">00:00</span></div>
 <div class="row"><button id="start" data-action="start" class="primary">开始本条</button><button id="save" data-action="save" class="primary">结束并保存</button><button id="discard" data-action="discard" class="warn">删除本条</button><button id="exit" data-action="exit">退出录制</button></div>
+<p class="hint">快捷键（同 174）：<kbd>Enter</kbd> 开始 / 保存；<kbd>D</kbd> / <kbd>Delete</kbd> 丢弃本条，空闲时删除最近保存一条；<kbd>Q</kbd> 退出录制。输入框、中文输入法组词及保存处理中不触发。</p>
 <p class="hint">结束并保存：完成检查后保存，遥操继续。删除本条：本条不纳入数据集，原始文件保留。退出录制：暂停跟随，放弃未保存本条。已保存条目不受影响。</p>
 </section></div>
 <section class="panel table-panel"><div class="row"><h2 class="grow">已采集数据</h2><button id="refresh">刷新列表</button><button id="convert" data-action="convert">转换为 LeRobot · 28 维</button></div><div class="hint" id="dataRoot"></div>
@@ -27,11 +28,34 @@
 <details><summary>运行日志与保存路径</summary><div class="logs" id="logs"></div></details></section>
 <footer>关闭网页不会停止遥操；结束操作请点击“退出录制”，再点“退出控制”。暂停跟随不是硬件急停。<br>画面沿用 175 现有相机服务，左右腕方向修正保持一致。</footer>
 </main><script>
-const token='__CSRF_TOKEN__';let state=null,online=false,pending=false,refreshAt=0,lastError='';const $=id=>document.getElementById(id);
+const token='__CSRF_TOKEN__';let state=null,online=false,pending=false,refreshAt=0,lastError='',episodeRows=[],episodeTask='';const $=id=>document.getElementById(id);
 const phaseNames={paused:'已暂停 · 保持当前位置',active:'正在跟随',preparing:'切换准备中',fault:'故障 · 已停止下发',preview:'只读预览'};
 function message(text,error=false){$('message').textContent=text;$('message').className=error?'error':'';}
-async function action(name,extra={}){if(!online)return message('控制台连接已断开',true);pending=true;render();try{const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json','X-Console-Token':token},body:JSON.stringify({action:name,task:$('task').value,prompt:$('prompt').value,ready:$('ready').checked,recording_id:state?.recording?.id,...extra})});const data=await r.json();if(!r.ok)throw Error(data.error);message('正在处理：'+(document.querySelector(`[data-action="${name}"]`)?.textContent||name));refreshAt=0;}catch(e){message(e.message,true);}finally{pending=false;await poll();}}
+async function action(name,extra={}){if(!online)return message('控制台连接已断开',true);pending=true;render();try{const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json','X-Console-Token':token},body:JSON.stringify({action:name,task:$('task').value,prompt:$('prompt').value,ready:$('ready').checked,recording_id:state?.recording?.id,...extra})});const data=await r.json();if(!r.ok)throw Error(data.error);message('正在处理：'+(document.querySelector(`[data-action="${name}"]`)?.textContent||({delete_last:'删除最近保存的一条'}[name]||name)));refreshAt=0;}catch(e){message(e.message,true);}finally{pending=false;await poll();}}
 for(const button of document.querySelectorAll('[data-action]'))button.onclick=()=>action(button.dataset.action);
+// Same recording keys as 174; never send motion commands from a key.
+document.addEventListener('keydown',event=>{
+ const key=event.key.toLowerCase();
+ if(!['enter','d','delete','q'].includes(key)||event.isComposing||event.keyCode===229||event.ctrlKey||event.altKey||event.metaKey||event.shiftKey)return;
+ const target=event.target;
+ if(target instanceof Element&&(target.closest('input,textarea,select,[role="textbox"]')||target.isContentEditable))return;
+ event.preventDefault();
+ if(event.repeat||pending||!online)return;
+ if(key==='enter'){
+  const button=$(state?.recording?'save':'start');if(!button.disabled)button.click();
+ }else if(key==='q'){
+  if(!$('exit').disabled)$('exit').click();
+ }else if(state?.recording){
+  if(!$('discard').disabled)$('discard').click();
+ }else{
+  if(state?.jobs?.record?.running||state?.jobs?.convert?.running)return;
+  if(episodeTask!==$('task').value){message('请先刷新当前任务的数据列表',true);return;}
+  const saved=episodeRows.filter(row=>row.status==='saved').sort((a,b)=>Number(b.hdf5.match(/episode_(\d+)\.hdf5$/)[1])-Number(a.hdf5.match(/episode_(\d+)\.hdf5$/)[1]));
+  if(!saved.length){message('没有已保存的轨迹可删除');return;}
+  action('delete_last',{episode:saved[0].id});
+ }
+});
+
 function render(){const c=state?.control||{},r=state?.recording,j=state?.jobs||{},controlBusy=j.control?.running,recordBusy=j.record?.running,converting=j.convert?.running,connected=online&&c.connected;
 $('connection').textContent=online?'● 控制台在线':'控制台连接断开';$('connection').className='badge '+(online?'good':'bad');
 $('armStatus').textContent=connected?(phaseNames[c.phase]||c.phase)+(c.active_arm?' · '+(c.active_arm==='left'?'左臂':'右臂'):''):'控制未连接';
@@ -49,7 +73,7 @@ const error=r?.error||c.error||Object.values(j).map(x=>x.error).filter(Boolean).
 if(!pending&&!Object.values(j).some(x=>x.running)&&!error){const last=state?.logs?.at(-1);if(last)message(last.text);}
 }
 async function poll(){try{const response=await fetch('/api/status',{cache:'no-store',signal:AbortSignal.timeout(4000)});if(!response.ok)throw Error('status');state=await response.json();online=true;}catch(e){online=false;}render();if(online&&Date.now()-refreshAt>5000){refreshAt=Date.now();await episodes();}}
-async function episodes(){try{const response=await fetch('/api/episodes?task='+encodeURIComponent($('task').value));if(!response.ok)return;const rows=await response.json();$('episodes').replaceChildren();for(const row of rows){const tr=document.createElement('tr');const values=[row.id,({saved:'已保存',discarded:'已丢弃',recording:'录制中',complete:'待处理',failed:'异常'})[row.status]||row.status,`${row.frames??'—'} / ${row.duration_s==null?'—':row.duration_s.toFixed(1)+' s'}`,row.valid===true?'通过':row.valid===false?'未通过':'—'];for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td);}const td=document.createElement('td'),button=document.createElement('button');button.textContent='移入回收站';button.disabled=!!state?.recording||state?.jobs?.record?.running||state?.jobs?.convert?.running;button.onclick=()=>action('delete',{episode:row.id});td.append(button);tr.append(td);$('episodes').append(tr);}if(!rows.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent='暂无数据。开始录制后，条目会出现在这里。';tr.append(td);$('episodes').append(tr);}}catch(e){}}
+async function episodes(){const requestedTask=$('task').value;try{const response=await fetch('/api/episodes?task='+encodeURIComponent(requestedTask));if(!response.ok)return;const rows=await response.json();if(requestedTask!==$('task').value)return;episodeRows=rows;episodeTask=requestedTask;$('episodes').replaceChildren();for(const row of rows){const tr=document.createElement('tr');const values=[row.id,({saved:'已保存',discarded:'已丢弃',recording:'录制中',complete:'待处理',failed:'异常'})[row.status]||row.status,`${row.frames??'—'} / ${row.duration_s==null?'—':row.duration_s.toFixed(1)+' s'}`,row.valid===true?'通过':row.valid===false?'未通过':'—'];for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td);}const td=document.createElement('td'),button=document.createElement('button');button.textContent='移入回收站';button.disabled=!!state?.recording||state?.jobs?.record?.running||state?.jobs?.convert?.running;button.onclick=()=>action('delete',{episode:row.id});td.append(button);tr.append(td);$('episodes').append(tr);}if(!rows.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent='暂无数据。开始录制后，条目会出现在这里。';tr.append(td);$('episodes').append(tr);}}catch(e){}}
 $('refresh').onclick=episodes;$('task').onchange=()=>{episodes();render();};$('ready').onchange=render;
 fetch('/api/tasks').then(r=>r.json()).then(tasks=>{for(const name of tasks){const o=document.createElement('option');o.value=name;$('taskList').append(o);}}).catch(()=>{});
 for(const card of document.querySelectorAll('[data-camera]')){let url=null;async function frame(){if(!document.hidden){try{const response=await fetch('/camera/'+card.dataset.camera+'?t='+Date.now(),{cache:'no-store',signal:AbortSignal.timeout(3000)});if(!response.ok)throw Error('offline');const next=URL.createObjectURL(await response.blob());card.querySelector('img').src=next;if(url)URL.revokeObjectURL(url);url=next;card.querySelector('.view').classList.remove('offline');card.querySelector('.camstatus').textContent='● 实时';}catch(e){card.querySelector('.view').classList.add('offline');card.querySelector('.camstatus').textContent='离线';}}setTimeout(frame,150);}frame();}

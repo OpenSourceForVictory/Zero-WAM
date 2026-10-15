@@ -80,7 +80,7 @@ class Console:
 
     def submit(self,action,body):
         groups={'controller_start':'control','left':'control','right':'control','pause':'control','controller_stop':'control',
-                'start':'record','save':'record','discard':'record','exit':'record','delete':'record','convert':'convert'}
+                'start':'record','save':'record','discard':'record','exit':'record','delete':'record','delete_last':'record','convert':'convert'}
         if action not in groups:raise ValueError('未知操作')
         group=groups[action]
         with self.lock:
@@ -243,6 +243,13 @@ class Console:
                     'hdf5':review.get('hdf5'),'task':meta.get('task'),'started_at':meta.get('started_at')})
             except (OSError,ValueError):continue
         return items
+
+    def do_delete_last(self,body):
+        saved=[row for row in self.episodes(body.get('task','')) if row['status']=='saved']
+        if not saved:raise ValueError('没有已保存的轨迹可删除')
+        latest=max(saved,key=lambda row:int(Path(row['hdf5']).stem.split('_')[-1]))
+        if body.get('episode')!=latest['id']:raise ValueError('最近保存条目已变化，请刷新列表后重试')
+        self.do_delete(body)
 
     def do_delete(self,body):
         if self.record:raise ValueError('请先结束当前录制')
