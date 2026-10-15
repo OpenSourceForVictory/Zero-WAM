@@ -555,3 +555,16 @@ cd ~/piper_runtime/collection
 ~/miniconda3/envs/pika/bin/python gripper_only_probe.py --seconds 60 --execute
 ```
 启动执行即按当前 Sense 开口发送绝对目标，不再从当前反馈做软件渐变。
+
+### 大范围夹爪测试（2026-10-15 19:46）
+
+`acceptance/gripper_probe_20261015_194601/`：60 秒正常完成，2503 条夹爪指令，无关节目标。
+结束前约 58.55 秒的采样统计：Sense 0.02..1.73 rad，目标 0.779..80 mm，实际反馈 1.6..79 mm。
+已验证大范围开合响应，尚不代表跟踪精度或带载性能验收；结束最后目标为 80 mm。
+用户询问取消目标范围：保留配套 Piper 驱动的 0..80 mm 边界，不向硬件发送超范围目标。
+
+同轮已通过公开页面数据接口读到用户指定 ROS2 手册正文（此前网页读取工具失败）。
+https://agilexsupport.yuque.com/staff-hso6mo/peoot3/vm7e26ho2hmuw0ng?singleDoc=
+标题为《【对外】Pika 产品用户手册 beta（CN） ROS2》，更新时间 2026-09-15。
+当前 Sense + Piper 原装夹爪应以 6.2 遥操作机械臂及其链接流程为依据，不把 Pika Gripper 专用说明混用。
+手册正文已取得，具体遥操作子文档尚需逐项核对；0..80 mm 边界依据是配套驱动源码。
