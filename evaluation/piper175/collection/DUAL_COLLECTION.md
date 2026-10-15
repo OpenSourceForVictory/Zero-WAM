@@ -172,3 +172,12 @@ legacy28 复用 174 的 v2.1 helper 和原样保存的 `reference_174/piper_fk.p
   "$HOME/datasets/pika_piper/task_handover/hdf5" \
   "$HOME/datasets/pika_piper/task_handover_lerobot"
 ```
+
+### 启动控制后不能跟随：2026-10-15 定位中断记录
+
+21:23 用户通过网页启动控制成功，但两次选择左臂返回 `Sense/Tracker input missing or stale`。
+只读检查确认：夹持数据 3 秒约 375 条，Tracker USB 在线、定位进程存在，但 `/pika_pose_l` 3 秒为 0 条。
+官方定位日志连续提示 `The data fluctuates too much`；不能仅凭 Tracker 绿灯判断位姿输出正常。
+用户确认绿灯且移到无遮挡位置后，保持网关 paused，退出旧 sensors launch 并重启单左 Sense 传感器入口；未调整定位过滤阈值、未启用遥操、未回零。
+恢复后 3 秒收到 300 条有效位姿，最新年龄约 9 ms。需用户重新点击左/右臂选择，不会自动恢复跟随。
+重启日志：`acceptance/sensor_restart_20261015_2127.log`。另一次录制失败是提示词为空，与机械臂控制无关。
