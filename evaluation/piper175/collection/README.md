@@ -534,3 +534,24 @@ Sense 0.03..1.72 rad、归一化 0..1；目标 35.649..40.649 mm，反馈 38.0..
 故障位全 false，CAN_CTRL/NORMAL、错误码 0。
 确认输入到夹爪命令链路连续运行且反馈有运动；实际反馈行程只有 1.9 mm，小于目标 5 mm，
 不能据此宣布完整跟随通过。需进一步区分动态滞后、低力矩/摩擦和目标保持时间等因素。
+
+### 按配套源码恢复夹爪映射（2026-10-15）
+
+用户要求按官方文档/配套代码，不再额外添加小幅测试限制。语雀链接本次无法读取；
+依据官方 https://github.com/agilexrobotics/pika_ros 的 sensor_tools/src/serial_gripper_imu.cpp
+及 175 的 ~/pika_ros/install/piper/lib/python3.10/site-packages/piper/piper_ctrl_single_node.py。
+使用 getDistance 几何公式，角度按原代码钳制到 0..1.67 rad，距离为 2*(getDistance(angle)-getDistance(0))；
+Piper 目标钳制到 0..80 mm，低于 0.2 mm 置零，默认 GripperCtrl 力矩参数 1000（SDK 单位）。
+删除自加的 5 mm 相对行程、5 mm/s 目标渐变、0.15 rad 相邻角度跳变退出；2 mm 偏差退出此前已删除。
+测试默认 60 秒，--seconds 可指定任意正有限时长，不再限制最多 15 秒。
+保留独占控制、非有限数据/设备错误拒绝、断连/反馈超时和电机故障检查。
+校准文件仅用于 Sense 身份核对及历史证据，当前目标不再采用该文件中的线性端点映射。
+这仍是夹爪单独测试入口，不等同于完整官方 ROS 遥操作栈；未改变六关节控制。
+此前提出的 0..70 mm 线性映射版本未部署，已由此几何映射替代。
+18 项离线测试通过；部署不自动启动动作，新配置的实际跟随效果尚待测试。
+
+```bash
+cd ~/piper_runtime/collection
+~/miniconda3/envs/pika/bin/python gripper_only_probe.py --seconds 60 --execute
+```
+启动执行即按当前 Sense 开口发送绝对目标，不再从当前反馈做软件渐变。

@@ -78,19 +78,16 @@ def test_measured_grip_mapping_and_fault_rejection(monkeypatch):
     with pytest.raises(ValueError): normalized_opening(.5,1.71,.04)
 
 
-def test_gripper_probe_slew_and_relative_envelope(monkeypatch):
+def test_gripper_official_geometry_and_driver_clamp(monkeypatch):
     monkeypatch.syspath_prepend(str(ROOT))
-    from grip_mapping import limited_probe_target
-    assert limited_probe_target(.035,.5,.5,.035,.02)==.035
-    target=.035
-    for _ in range(500):
-        new=limited_probe_target(.035,0,1,target,.02)
-        assert 0<=new-target<=.00010000001
-        target=new
-    assert target==pytest.approx(.04)
-    assert limited_probe_target(.035,0,1,.035,10)==pytest.approx(.03525)
-    assert limited_probe_target(0,1,0,0,.02)==0
-    with pytest.raises(ValueError): limited_probe_target(.08,0,1,.08,.02)
+    from grip_mapping import gripper_target
+    assert gripper_target(0)==0
+    assert gripper_target(-.01)==0
+    assert gripper_target(1.67)==pytest.approx(.08)
+    assert gripper_target(1.72)==pytest.approx(.08)
+    assert 0 < gripper_target(.5) < gripper_target(1.) < .08
+    with pytest.raises(ValueError): gripper_target(float('nan'))
+    with pytest.raises(ValueError): gripper_target(float('inf'))
 
 
 @pytest.fixture

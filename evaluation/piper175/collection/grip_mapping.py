@@ -18,15 +18,17 @@ def normalized_opening(raw_rad, closed_rad, open_rad, tolerance_rad=0.05):
     return min(1.0,max(0.0,(raw_rad-closed_rad)/(open_rad-closed_rad)))
 
 
-def limited_probe_target(base_m, initial_opening, opening, previous_m, dt):
-    """Small relative test: ±5 mm from initial feedback, ramp at 5 mm/s.
+def gripper_target(raw_rad):
+    """pika_ros getDistance conversion, then Piper's 0..80 mm clamp.
 
-    0..70 mm is a conservative software envelope, not verified mechanical travel.
+    Matches sensor_tools/serial_gripper_imu.cpp and piper_ctrl_single_node.py.
     """
-    if not all(math.isfinite(x) for x in (base_m,initial_opening,opening,previous_m,dt)):
-        raise ValueError('Non-finite gripper target inputs')
-    if not 0<=base_m<=.07 or not 0<=previous_m<=.07 or not 0<=opening<=1 or not 0<=initial_opening<=1 or dt<0:
-        raise ValueError('Gripper test envelope exceeded')
-    target=min(.07,max(0.,base_m+(opening-initial_opening)*.005))
-    step=.005*min(dt,.05)
-    return previous_m+min(step,max(-step,target-previous_m))
+    if not math.isfinite(raw_rad):
+        raise ValueError('Non-finite Sense angle')
+    angle=min(1.67,max(0.,raw_rad))
+    def distance(rad):
+        theta=math.radians(180.-43.99)-rad
+        height=.0325*math.sin(theta)
+        return math.sqrt(.058**2-(height-.01456)**2)+.0325*math.cos(theta)
+    target=min(.08,max(0.,2*(distance(angle)-distance(0.))))
+    return 0. if target<.0002 else target
