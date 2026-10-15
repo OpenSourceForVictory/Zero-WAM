@@ -66,6 +66,18 @@ def test_sense_error_blocks_readiness():
     assert not core.valid_message(r)
 
 
+def test_measured_grip_mapping_and_fault_rejection(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    from grip_mapping import normalized_opening
+    assert normalized_opening(.04,.04,1.71)==0
+    assert normalized_opening(1.71,.04,1.71)==1
+    assert normalized_opening(.875,.04,1.71)==pytest.approx(.5)
+    assert normalized_opening(1.73,.04,1.71)==1
+    for value in (-.1,1.8,float('nan'),float('inf')):
+        with pytest.raises(ValueError): normalized_opening(value,.04,1.71)
+    with pytest.raises(ValueError): normalized_opening(.5,1.71,.04)
+
+
 @pytest.fixture
 def dataset(tmp_path):
     p=profile(); (tmp_path/'frames').mkdir()
