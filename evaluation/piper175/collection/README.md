@@ -484,3 +484,15 @@ cd ~/piper_runtime/collection
 夹爪反馈 200 Hz、开口 43.8 mm、driver_enable_status=false、homing_status=false，故障位均 false，
 机械臂状态 STANDBY/NORMAL、错误码 0。未修改零点；不能将 homing_status=false 解释为已完成校准。
 等待现场夹爪区域清空确认，再执行短时小幅控制；旧 ROS 采集节点尚未替换为此映射。
+
+### 首次实际夹爪测试（2026-10-15 19:25–19:27）
+
+现场确认清空后执行夹爪单独测试，未调用六关节使能、目标或回零。
+`acceptance/gripper_probe_20261015_192541/`：5 秒发 209 次夹爪指令，Sense 始终 1.71 rad，
+目标及反馈均 43.8 mm；仅验证了使能/原位保持，不能算开合跟随通过。
+`acceptance/gripper_probe_20261015_192607/`：请求 15 秒，发 238 次后因跟踪误差超过 2 mm 停止新指令。
+Sense 1.71→0.78 rad，目标 43.8→41.8796 mm，反馈始终 43.8 mm，跟随未通过。
+后续只读核查：夹爪 driver_enable_status=true、homing_status=false，无故障位；
+机械臂 STANDBY/NORMAL，六关节 driver_enable_status 全 false。
+SDK MotionCtrl_2 可选择 CAN 指令控制模式，但本轮未发送该指令，尚不能确认待机模式是否为不跟随的原因。
+当前左夹爪保持使能及最后目标；六关节未使能，未执行归零。需先解决控制模式/响应问题再扩大测试范围。
