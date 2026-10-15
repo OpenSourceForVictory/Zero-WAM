@@ -36,8 +36,8 @@ def run(p, seconds=20, side='both'):
             if good: valid[side]+=1
             last[side]={'source_time':stamp,'receive_time':time.time(),'pose':values,'valid':good}
         return callback
-    for side,suffix in [('left','l'),('right','r')]:
-        node.create_subscription(PoseStamped,'/pika_pose_'+suffix,receive(side),qos_profile_sensor_data)
+    for topic_side,suffix in [('left','l'),('right','r')]:
+        node.create_subscription(PoseStamped,'/pika_pose_'+suffix,receive(topic_side),qos_profile_sensor_data)
     executable=Path(p['legacy_root'])/'install/pika_locator/lib/pika_locator/pika_double_locator_node'
     args=[str(executable),'--ros-args','-p','left_hand_code:='+p['tracker_codes'][0],
           '-p','right_hand_code:='+p['tracker_codes'][1],'-p','publish_rate:=100.0']

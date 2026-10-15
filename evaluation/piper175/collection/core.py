@@ -9,7 +9,21 @@ def load_profile(path):
     p = json.loads(Path(path).read_text())
     if not 0 < p['hz'] <= 30 or not 0 < p['max_skew'] <= p['max_age']:
         raise ValueError('Invalid frequency or timestamp limits')
+    if p.get('active_arms',['left','right']) not in (['left'], ['right'], ['left','right']):
+        raise ValueError('Invalid active_arms')
     return p
+
+
+def vector_order(p):
+    arms=p.get('active_arms',['left','right'])
+    return (arms[0]+' joints 1..6, '+arms[0]+' gripper; rad,m') if len(arms)==1 else 'left6,right6,left_gripper,right_gripper; rad,m'
+
+
+def action_vector(selected, p, kind):
+    arms=p.get('active_arms',['left','right'])
+    if len(arms)==1:
+        return selected[kind+'_'+arms[0]]['message']['position']
+    return dual_vector(selected[kind+'_left'],selected[kind+'_right'])
 
 
 def decode_cameras(payload, p, now):
@@ -32,6 +46,8 @@ def decode_cameras(payload, p, now):
 def valid_message(row):
     """Validate numeric geometry without reinterpreting raw message units."""
     d = row['message']
+    if row['stream'].startswith('sense_'):
+        return not d.get('error',True) and bool(np.isfinite([d.get('angle',float('nan')),d.get('distance',float('nan'))]).all())
     if row['stream'].startswith(('state_', 'action_')):
         v = np.asarray(d.get('position', []), dtype=float)
         return v.shape == (7,) and bool(np.isfinite(v).all())
@@ -84,8 +100,8 @@ def build_index(episode):
             rejected.append({'frame':frame['file'], 'missing':missing})
             continue
         aligned.append({'time':t, 'frame':frame['file'], 'streams':selected,
-                        'state':dual_vector(selected['state_left'], selected['state_right']),
-                        'action':dual_vector(selected['action_left'], selected['action_right'])})
+                        'state':action_vector(selected,p,'state'),
+                        'action':action_vector(selected,p,'action')})
     duration = frames[-1]['receive_time']-frames[0]['receive_time'] if len(frames)>1 else 0
     rate = (len(frames)-1)/duration if duration>0 else 0
     gaps = np.diff([x['receive_time'] for x in frames])

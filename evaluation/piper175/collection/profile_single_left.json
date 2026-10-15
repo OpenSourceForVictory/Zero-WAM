@@ -1,0 +1,67 @@
+{
+  "name": "pika_single_left_piper_orbbec175_v1",
+  "legacy_root": "/home/piperpika/pika_ros",
+  "data_root": "/home/piperpika/datasets/pika_piper",
+  "camera_url": "http://127.0.0.1:8080",
+  "camera_serials": [
+    "CC1C8100041",
+    "CC1C810002Y",
+    "CC1C8100015"
+  ],
+  "camera_roles": [
+    "high",
+    "left",
+    "right"
+  ],
+  "serial_ports": [
+    "/dev/pika-sense-left",
+    "/dev/pika-sense-right"
+  ],
+  "tracker_codes": [
+    "LHR-5E557D95",
+    "LHR-F7A7E2FD"
+  ],
+  "can_usb_ports": [
+    "1-2.2:1.0",
+    "1-2.1:1.0"
+  ],
+  "hz": 10,
+  "max_age": 0.2,
+  "max_skew": 0.1,
+  "min_free_gb": 10,
+  "required_topics": {
+    "action_left": [
+      "/joint_states_gripper_l",
+      "sensor_msgs/msg/JointState"
+    ],
+    "state_left": [
+      "/joint_states_single_l",
+      "sensor_msgs/msg/JointState"
+    ],
+    "pika_left": [
+      "/pika_pose_l",
+      "geometry_msgs/msg/PoseStamped"
+    ]
+  },
+  "optional_topics": {
+    "sense_left": [
+      "/sensor/gripper_l/data",
+      "data_msgs/msg/Gripper"
+    ],
+    "teleop_left": [
+      "/teleop_status_l",
+      "data_msgs/msg/TeleopStatus"
+    ],
+    "tcp_left": [
+      "/piper_FK_l/urdf_end_pose_orient",
+      "geometry_msgs/msg/PoseStamped"
+    ],
+    "state_right": [
+      "/joint_states_single_r",
+      "sensor_msgs/msg/JointState"
+    ]
+  },
+  "active_arms": [
+    "left"
+  ]
+}

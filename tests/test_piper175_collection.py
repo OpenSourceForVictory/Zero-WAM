@@ -57,6 +57,15 @@ def test_invalid_numeric_target():
     assert core.select_sample([bad],10.01,.1) is None
 
 
+def test_sense_error_blocks_readiness():
+    r={'stream':'sense_left','message':{'error':True,'angle':1.67,'distance':.0967}}
+    assert not core.valid_message(r)
+    r['message']['error']=False
+    assert core.valid_message(r)
+    r['message']['angle']=float('nan')
+    assert not core.valid_message(r)
+
+
 @pytest.fixture
 def dataset(tmp_path):
     p=profile(); (tmp_path/'frames').mkdir()
@@ -78,6 +87,24 @@ def test_complete_episode_keeps_actions_separate(dataset):
     assert quality['valid'] and quality['aligned']==12
     assert rows[0]['state']==[1]*12+[.02,.02]
     assert rows[0]['action']==[2]*12+[.02,.02]
+
+
+def test_single_left_export_is_seven_dimensional(dataset,monkeypatch):
+    manifest=dataset/'manifest.json'
+    meta=json.loads(manifest.read_text())
+    meta['profile']['active_arms']=['left']
+    meta['profile']['required_topics']={k:v for k,v in meta['profile']['required_topics'].items() if k.endswith('_left')}
+    manifest.write_text(json.dumps(meta))
+    rows,quality=core.build_index(dataset)
+    assert quality['valid'] and rows[0]['action']==[2]*6+[.02]
+    monkeypatch.syspath_prepend(str(ROOT))
+    spec=importlib.util.spec_from_file_location('single_cli',ROOT/'collect.py')
+    cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
+    cli.export(dataset)
+    import h5py
+    with h5py.File(dataset/'data.hdf5') as f:
+        assert f['action'].shape==(12,7)
+        assert 'left' in f.attrs['vector_order']
 
 
 def test_partial_episode_not_exportable(dataset):

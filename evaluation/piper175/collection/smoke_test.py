@@ -20,7 +20,7 @@ from geometry_msgs.msg import PoseStamped
 
 
 def main():
-    p=json.loads((ROOT/'profile.json').read_text())
+    p=json.loads(Path(sys.argv[1] if len(sys.argv)>1 else ROOT/'profile.json').read_text())
     ident='synthetic_'+uuid.uuid4().hex
     out=ROOT/'acceptance'/ident; out.mkdir(parents=True)
     for key,v in {**p['required_topics'],**p['optional_topics']}.items():

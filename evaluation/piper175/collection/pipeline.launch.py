@@ -23,6 +23,7 @@ def setup(context):
                               'publish_rate':100.0,'dist_limit':0.2,'angle_limit':0.2,
                               'linear_limit':5.0,'angular_limit':20.0}]))
         for i,side in enumerate(('l','r')):
+            if ('left','right')[i] not in p.get('active_arms',['left','right']): continue
             remaps=[('/imu/data',f'/sensor/imu_{side}/data'),
                     ('/gripper/data',f'/sensor/gripper_{side}/data'),
                     ('/gripper/ctrl',f'/sensor/gripper_{side}/ctrl'),
@@ -37,18 +38,20 @@ def setup(context):
                     ('/arm_control_status',f'/arm_control_status_{side}')]
             nodes.append(Node(package='sensor_tools',executable='serial_gripper_imu',
                               name=f'sensor_serial_gripper_imu_{side}',output='screen',
-                              parameters=[{'serial_port':p['serial_ports'][i],
+                              parameters=[{'serial_port':str(Path(p['serial_ports'][i]).resolve()),
                                            'joint_name':f'gripper_{side}_center_joint'}],remappings=remaps))
     elif mode=='teleop':
-        can=[]
-        for port in p['can_usb_ports']:
+        can={}
+        for word,port in zip(('left','right'),p['can_usb_ports']):
+            if word not in p.get('active_arms',['left','right']): continue
             matches=[x.name for x in Path('/sys/class/net').iterdir() if (x/'device').resolve().name==port]
             if len(matches)!=1: raise RuntimeError(f'CAN mapping failed: {port}')
-            can.append(matches[0])
+            can[word]=matches[0]
         for i,(side,word) in enumerate((('l','left'),('r','right'))):
+            if word not in p.get('active_arms',['left','right']): continue
             nodes.append(Node(package='piper',executable='piper_single_ctrl',
                               name=f'piper_{word}_ctrl_node',output='screen',prefix=sys.executable,
-                              parameters=[{'can_port':can[i],'auto_enable':True,
+                              parameters=[{'can_port':can[word],'auto_enable':True,
                                            'rviz_ctrl_flag':False,'girpper_exist':True,'piper_name':word}],
                               remappings=[('pos_cmd',f'/pos_{word}_cmd'),
                                           (f'/puppet/joint_{word}',f'/joint_states_single_{side}'),

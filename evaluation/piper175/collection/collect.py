@@ -16,7 +16,7 @@ import time
 from urllib.request import urlopen
 
 import numpy as np
-from core import load_profile, decode_cameras, valid_message, build_index
+from core import load_profile, decode_cameras, valid_message, build_index, vector_order
 
 ROOT = Path(__file__).resolve().parent
 
@@ -36,7 +36,8 @@ def camera(p):
 
 def channels(p):
     result = []
-    for port in p['can_usb_ports']:
+    for arm,port in zip(('left','right'),p['can_usb_ports']):
+        if arm not in p.get('active_arms',['left','right']): continue
         matches = [x.name for x in Path('/sys/class/net').iterdir()
                    if (x/'device').resolve().name == port]
         if len(matches)!=1:
@@ -49,6 +50,7 @@ def verify_sense_hubs(p):
     devices=list(Path('/sys/bus/usb/devices').iterdir())
     result={}
     for side,port,code in zip(('left','right'),p['serial_ports'],p['tracker_codes']):
+        if side not in p.get('active_arms',['left','right']): continue
         tty=Path(port).resolve().name
         device=(Path('/sys/class/tty')/tty/'device').resolve()
         serial_usb=next((x for x in device.parents if (x/'idVendor').exists()),None)
@@ -69,7 +71,7 @@ def conflicting_processes():
             and 'sshd:' not in s and 'bash -c' not in s]
 
 
-def check(p):
+def check(p, require_can=True):
     failures = []
     def item(label, fn):
         try:
@@ -81,10 +83,11 @@ def check(p):
     for module in ('rclpy','sensor_msgs.msg','geometry_msgs.msg','data_msgs.msg',
                    'piper_sdk','pinocchio','casadi','meshcat','cv2','h5py'):
         item('import '+module,lambda module=module: bool(importlib.import_module(module)))
-    for port in p['serial_ports']:
+    for arm,port in zip(('left','right'),p['serial_ports']):
+        if arm not in p.get('active_arms',['left','right']): continue
         item(port, lambda port=port: Path(port).exists() and os.access(port,os.R_OK|os.W_OK))
     item('Sense/Tracker hub mapping',lambda: verify_sense_hubs(p))
-    item('CAN mapping',lambda: channels(p))
+    if require_can: item('CAN mapping',lambda: channels(p))
     def can_up():
         devices = json.loads(subprocess.check_output(['ip','-j','-d','link','show','type','can']))
         found = {x['ifname']:x for x in devices}
@@ -93,7 +96,7 @@ def check(p):
             if 'UP' not in x['flags'] or x['linkinfo']['info_data']['bittiming']['bitrate']!=1000000:
                 raise RuntimeError(f'{name} must be UP at 1 Mbps; no change was made')
         return True
-    item('CAN state',can_up)
+    if require_can: item('CAN state',can_up)
     item('libsurvive calibration file',lambda: (Path.home()/'.config/libsurvive/config.json').is_file())
     item('camera serials/timestamps',lambda: camera(p)[1].tolist())
     manifest = ROOT/'legacy_manifest.json'
@@ -189,7 +192,8 @@ def record(p,args):
         episode.mkdir(); (episode/'frames').mkdir()
         meta={'schema':'pika175-v1','profile':p,'task':args.task,'status':'recording',
               'started_at':time.time(),'image_encoding':'BGR uint8, lossless NPZ',
-              'vector_order':'left joints 1..6, right joints 1..6, left gripper, right gripper',
+              'vector_order':vector_order(p),
+              'active_arms':p.get('active_arms',['left','right']),
               'units':'joint targets/feedback radians; gripper targets/feedback meters',
               'action_semantics':'ROS requested joint/gripper targets before legacy driver conversion; NOT measured state',
               'legacy_hashes':json.loads((ROOT/'legacy_manifest.json').read_text()),
@@ -273,7 +277,7 @@ def export(episode):
     with h5py.File(tmp,'x') as f:
         f.attrs['schema']='pika175-v1; images are relative NPZ paths, preserve raw directory'
         f.attrs['color_order']='BGR'
-        f.attrs['vector_order']='left6,right6,left_gripper,right_gripper; rad,m'
+        f.attrs['vector_order']=vector_order(json.loads((episode/'manifest.json').read_text())['profile'])
         f.create_dataset('timestamp',data=[r['time'] for r in aligned])
         f.create_dataset('observations/qpos',data=[r['state'] for r in aligned])
         f.create_dataset('action',data=[r['action'] for r in aligned])
@@ -323,11 +327,12 @@ def main():
         signatures=('piper_single_ctrl','piper_IK.py') if args.command=='teleop' else ('pika_double_locator_node','serial_gripper_imu')
         if any(x in existing for x in signatures):
             raise RuntimeError('An existing legacy sensor/controller process is running')
-        if not check(p): raise RuntimeError('Preflight failed; no launch started')
+        if not check(p,require_can=args.command=='teleop'): raise RuntimeError('Preflight failed; no launch started')
         if args.command=='teleop':
             obs=Observer(p)
             try:
-                time.sleep(3); issues=obs.readiness(p,keys=['pika_left','pika_right','sense_left','sense_right'])
+                keys=[kind+'_'+arm for arm in p.get('active_arms',['left','right']) for kind in ('pika','sense')]
+                time.sleep(3); issues=obs.readiness(p,keys=keys)
                 if issues: raise RuntimeError('; '.join(issues))
             finally: obs.close()
         os.environ['PIKA175_PROFILE']=str(Path(args.profile).resolve())
