@@ -236,3 +236,14 @@ bash run.sh locator-check
 线缆、Hub/供电、Tracker 工作状态或软件兼容性。不能仅凭基站正常就认定 Tracker
 已开机正常工作，也不能仅凭 -71 就断言某根线已损坏。
 尚未有任何有效左右位姿，不解除采集/遥操作前置检查，不绕过错误继续运行。
+
+### 两只 Tracker 绿灯后的复测（2026-10-15 16:20）
+
+现场确认两只 Tracker 均已按键开机、亮绿灯。再次运行 `bash run.sh locator-check`，
+左右位姿仍均为 0，进程以 -6 提前退出；日志在 `acceptance/locator_20261015_162011/`。
+另用已安装的 `survive-cli` 绕过 ROS 节点，使用校准配置副本、禁用校准，限时 12 秒测试，
+同样约 0.92 秒报 `T21 Device disconnect: 1` 和 libusb 互斥锁断言。
+日志及配置副本在 `acceptance/powered_on_cli_20261015/`。
+因此故障可在底层工具中复现，尚不能归因于 ROS 话题配置或仅仅未开机。
+下一步应分别测试单只 Tracker，并对比绕过 Sense Hub 的 USB 直连，区分设备、连接链路及驱动问题。
+测试未启动机械臂控制；单只测试和直连测试尚未进行。
