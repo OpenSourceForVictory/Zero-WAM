@@ -589,3 +589,21 @@ bash run.sh --profile profile_single_left.json teleop --execute
 Sense 松开端原代码会将大于 1.67 rad 钳制并设置 error=true，此已知兼容问题仍存在于完整 ROS 栈，不能将夹爪独立测试的修改当作 ROS 节点已修复。
 进程保持运行等待触发：传感器 ROS 日志 2026-10-15-19-48-24-206337-piperpika-23402，
 控制 ROS 日志 2026-10-15-19-48-56-041753-piperpika-23691。
+
+### 遥操作软件触发后验证（2026-10-15 19:53）
+
+用户反馈双击后仍不动。只读观察 Tracker/Sense/FK/机械臂反馈持续，但 action 和 teleop 状态均无输出。
+在用户已确认工作区清空、提示保持 Sense 静止后，调用原配套服务一次：
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/pika_ros/install/setup.bash
+ros2 service call /teleop_trigger_l std_srvs/srv/Trigger '{}'
+```
+
+注意这是切换服务，重复调用会反向切换；不要循环调用。旧回调未填写 response.success，返回 false 不代表未切换，必须检查实际状态。
+调用后 teleop_status_l 为 fail=false/quit=false，action 约 50 Hz，关节实际从零位变化并跟随目标。
+`acceptance/teleop_trigger_20261015_195345/` 保存后续 10 秒观察，502 条 action、1001 条 teleop 状态，
+实际六关节均发生明显变化，目标与实际范围相近，最后仍为启用状态。原观察器 state 缓冲最多 2000 条。
+Sense 固件 Command 变化到双击触发服务这段尚未确认原因；软件服务启用已验证，不应宣称双击问题修复。
+本轮仍保持左臂遥操作运行，右臂未接入。完整精度、停止和断连行为尚未完成验收。
