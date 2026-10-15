@@ -247,3 +247,32 @@ bash run.sh locator-check
 因此故障可在底层工具中复现，尚不能归因于 ROS 话题配置或仅仅未开机。
 下一步应分别测试单只 Tracker，并对比绕过 Sense Hub 的 USB 直连，区分设备、连接链路及驱动问题。
 测试未启动机械臂控制；单只测试和直连测试尚未进行。
+
+### 环境与单只 Tracker 对照（2026-10-15 16:22–16:24）
+
+对照厂家主文档第四章部署要求，实测如下：
+
+| 项目 | 175 实测 | 判断 |
+| --- | --- | --- |
+| 系统 / ROS | Ubuntu 22.04.5 / Humble，内核 6.8.0-138 | 系统与 ROS 符合文档要求 |
+| 代码 | pika_ros ros2 分支，c30feb2b5e04516326609e82602eadf682a8755f | 旧版部署，未直接升级共享工作区 |
+| 编译及定位相关依赖 | gcc/g++ 13、zlib、libusb 开发包、JSONCPP、pcap、BLAS/LAPACK、OpenVR、diagnostic-updater 已装 | 未发现这些依赖缺失 |
+| 定位节点动态库 | source ROS 和 pika_ros 后，ldd 无 not found | 未 source 时的缺库不能视为实际启动故障 |
+| 原生二进制 | 定位节点及两份 libsurvive 的 SHA256 均匹配本机 source/install.zip | 未发现部署后被改写；不证明旧驱动无缺陷 |
+| USB 权限与电源 | 已有厂家规则及按序列号的补充规则；右手 power/control=on、runtime=active | 当前证据不支持权限拒绝或自动挂起 |
+| Python 依赖 | pika 环境 NumPy 2.0.2 / OpenCV 4.13.0 | NumPy 不符合当前文档 numpy<2；独立原生定位器不使用它，不能据此解释崩溃 |
+
+单只对照保持同一主机、同一定位程序及各自原有 Sense/短线：
+
+- 左手 LHR-5E557D95：20 秒探测未提前退出，128 帧通过有限值、四元数范数和时间戳检查。
+  日志 `acceptance/locator_20261015_162229/`。仍有大量定位波动警告；这不等于精度、稳定性或遥操作验收通过。
+  双臂检查器仍返回 false，因为右手被物理拔除。
+- 右手 LHR-F7A7E2FD：约 0.89 秒 USB Device disconnect 后 libusb 断言退出，0 帧。
+  日志 `acceptance/locator_20261015_162345/`。右手单只时临时名称变成 T20，不能用 T20/T21 固定代表左右。
+- 右手在 `env -i` 清空环境、仅设置 HOME/PATH/定位库路径后运行独立 survive-cli，
+  仍约 0.89 秒复现。使用配置副本并禁用校准，日志 `acceptance/right_clean_env_20261015/`。
+
+结论：当前基本环境能运行左手定位；右手问题不依赖双设备同时连接，也不依赖 ROS/Python/Conda 环境。
+尚不能区分右手 Tracker、本侧短线/Hub/供电，以及旧驱动对该设备的兼容性。
+下一项交叉验证应将右手 Tracker 接到左手已能输出数据的短线和 Sense 通道，或使用已知正常数据线直连工控机。
+未全局升级依赖、未覆盖旧定位库、未启动机械臂。左手输出波动需要在 USB 故障解决后另行验证校准和稳定性。
