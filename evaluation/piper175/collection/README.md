@@ -296,3 +296,30 @@ bash run.sh locator-check
 虽然本次现场操作是在请求直连后完成，USB 拓扑仍显示经过 VIA Hub、两级 Genesys Hub，
 且与一个 Sense 串口共享 `1-1.2` 父节点；因此不将本次记录为已验证绕过全部 Sense/Hub 的直连。
 当前连线应先保留，后续恢复左手时重新核对 Tracker 序列号与 Sense 串口绑定，不能直接沿用原端口映射。
+
+### 切回连接后故障复现（2026-10-15 16:54）
+
+用户确认将 Tracker 连接线切回后，再测右手 LHR-F7A7E2FD，USB 路径为 `1-1.1.3.2`。
+约 0.898 秒出现 Device disconnect 和 libusb 互斥锁断言，退出 -6，左右均 0 帧。
+日志保存在 175 的 `acceptance/locator_20261015_165412/`。
+对照 16:33 相同 Tracker 在 `1-1.2.3.3` 收到 1845 帧，这进一步支持连接链路相关故障；
+由于 USB 父通道也发生变化，尚不能把原因单独归到某根短线，仍需区分短线、接口和 Sense Hub。
+
+### 连接拓扑核查（2026-10-15 16:55）
+
+只读脚本 `python3 inspect_usb.py` 可保存 USB 设备、序列号、电源状态及串口映射，
+不打开设备、不启动驱动。175 快照：`acceptance/usb_connection_20261015_1655.json`。
+
+- 当前两套 Sense 的串口和 D405 均枚举在线；仅右手 Tracker 在线，左手 LHR-5E557D95 未枚举。
+- 右侧通道：`1-1.1` 主 Hub → `1-1.1.3` 子 Hub → `.2` 右手 Tracker；
+  串口为 ttyUSB0，固定别名 pika-sense-right；D405 序列号 242623072154。
+- 左侧通道：`1-1.2` 主 Hub → `1-1.2.3` 子 Hub（当前无 Tracker）；
+  串口为 ttyUSB1，固定别名 pika-sense-left；D405 序列号 242623072141。
+- 两支路共同上游是 VIA Hub `1-1`。16:33 成功测试也经过左支路 Hub，不是已确认的绕过 Sense 直连。
+- 当前 Tracker authorized=1，设备节点归 piperpika 所有，power/control=on，runtime=active；
+  上游右支路 Hub 也 active。未发现定位进程或 fuser 报告的当前用户占用。
+- Tracker 三个 HID 接口当前 unbound。此前 libusb 驱动会接管接口，这不能单独作为硬件故障证据。
+- 内核记录 16:51:06 从左支路拔出、16:51:18 在右支路重新枚举；16:54 定位程序崩溃时无对应内核拔出记录。
+  因此程序的 Device disconnect 指向传输错误处理，不等同于系统检测到物理断线。
+
+Hub 无唯一序列号，串口别名按端口绑定；本段左右指既有端口映射，不能仅凭它确认物理手持设备左右。
