@@ -368,3 +368,12 @@ bash run.sh locator-check --seconds 60 --side right
 全程平均 97.49 Hz，首帧 1.518 秒，最大帧间隔 0.01108 秒，无提前退出，passed=true。
 用户随后要求缩短测试：后续 B/A2 使用 `--seconds 5 --side right`，只用于筛查约 0.9 秒崩溃，
 不能将 5 秒通过表述为长期稳定性验收。A1 完成，B/A2 尚待现场更换 Sense。
+
+### B 对照结果（2026-10-15 17:29）
+
+现场按要求只更换为右手 Sense；软件核实 D405 变为 242623072154，
+右手 Tracker 仍为 LHR-F7A7E2FD，USB 路径仍为 `1-1.2.3.3`。
+请求 5 秒测试，实际 1.106 秒即退出 -6，0 帧，passed=false。
+日志 `acceptance/locator_20261015_172910/`。
+A1 正常而 B 失败，进一步支持故障与右手 Sense 相关；仍需换回 A 复测形成 A/B/A 闭环，
+并区分 Sense 硬件问题与旧驱动对其 Hub 的兼容性，不能仅凭此测试认定硬件损坏。
