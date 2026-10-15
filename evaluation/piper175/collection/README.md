@@ -2,7 +2,49 @@
 
 配置经用户确认：双 Pika Sense、双 Piper 原装夹爪，保留现有三路 Orbbec。
 新流程位于 `~/piper_runtime/collection`，旧 `~/pika_ros` 不修改、不重新编译。
-2026-10-15 状态：录制链路软件验证通过；Pika 未接入，真实遥操作和示教采集尚未验收。
+2026-10-15 最新状态：左手 Sense + 左侧 Piper 已验证位姿跟随及夹爪大范围开合；右手 Sense 待维修。当前使用 profile_single_left.json。真实任务 episode 尚未完成验收，双击开关不可靠；以下双臂章节保留作后续参考。
+
+## 当前单左臂采集入口
+
+所有命令在 175 的 `~/piper_runtime/collection` 执行。三相机依次为 high（桌面全景）、left、right。
+先保持传感器节点运行，再启动左臂遥操作。若传感器已运行，不要重复启动。
+
+```bash
+bash run.sh --profile profile_single_left.json sensors --execute
+# 另一个终端；会使能左臂并闭合夹爪
+bash run.sh --profile profile_single_left.json teleop --execute
+```
+
+Sense 朝向与末端一致后，使用已验证的软件服务切换启用一次（不要盲目重复）：
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/pika_ros/install/setup.bash
+ros2 service call /teleop_trigger_l std_srvs/srv/Trigger '{}'
+```
+
+旧服务返回 success=false，需依据实际 teleop_status_l 和动作反馈确认启用，不根据返回值重试。
+独立录制终端：
+
+```bash
+cd ~/piper_runtime/collection
+bash run.sh --profile profile_single_left.json streams
+bash run.sh --profile profile_single_left.json record --task '将物体从桌面放入容器' --seconds 30
+```
+
+看到 Recording 后开始示教。省略 --seconds 可手动 Ctrl+C 结束本条。结束自动检查，检查通过后导出：
+
+```bash
+bash run.sh --profile profile_single_left.json export /home/piperpika/datasets/pika_piper/episode_实际目录名
+```
+
+每条保存三路 640×480 BGR 图像、左臂 7 维目标和反馈（6 关节 rad + 夹爪 m）、Pika 位姿及时间戳；
+图像按 10 Hz 采集对齐，原始 ROS 消息另存。HDF5 保存图像 NPZ 相对路径，不内嵌图片，必须保留整个 episode。
+注意 action 是驱动裁剪前的 ROS 请求：原程序夹爪目标可到约 96.7 mm，而驱动裁剪到 80 mm；
+训练前应明确转换为实际下发语义，不能把这些文件宣称为可直接送入现双臂 14 维模型的数据。
+结束录制不会停止遥操。停止整次操作时保持 Sense 静止，在遥操作启动终端 Ctrl+C，
+等待控制进程退出并确认机械臂保持使能；旧节点退出可能等待 launch 升级终止信号。
+当前不依赖双击停止。录制和停止命令均不会主动归零。
 
 ## 依据与版本差异
 
