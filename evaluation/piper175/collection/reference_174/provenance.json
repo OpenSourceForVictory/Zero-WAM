@@ -4,6 +4,11 @@
   "copied_at": "2026-10-15",
   "files": {
     "convert_to_lerobot_v30.py": "065718f1ce9e0b8d5bf4d5e3a037b1173d6a46a7deca86a10cf3d625939a233e",
-    "convert_to_lerobot_v21.py": "979b5830ddcc184589d6d650d6d94bd564752586739d0c8560d78a6a531c55ec"
+    "convert_to_lerobot_v21.py": "979b5830ddcc184589d6d650d6d94bd564752586739d0c8560d78a6a531c55ec",
+    "piper_fk.py": "354d9b1f41271645de127c4c59ae30c86b0debddeba7a5c0ca0b1b2d44f9b93d"
+  },
+  "fk_source": "/home/agilex/cobot_magic/piper_sdk/piper_sdk/kinematics/piper_fk.py",
+  "local_adaptations": {
+    "convert_to_lerobot_v21.py": "Only FK import changed to the copied piper_fk.py; source hashes above describe original files."
   }
 }

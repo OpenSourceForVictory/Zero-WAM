@@ -43,7 +43,7 @@ import pyarrow.parquet as pq
 from scipy.spatial.transform import Rotation
 
 sys.path.insert(0, "/home/agilex/cobot_magic/piper_sdk")
-from piper_sdk import C_PiperForwardKinematics
+from piper_fk import C_PiperForwardKinematics  # pinned 174 offline FK; no CAN dependency
 
 
 def parse_args():

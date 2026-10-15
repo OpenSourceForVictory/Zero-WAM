@@ -9,6 +9,9 @@
 左→右→左 FK/IK 预览已通过，**新入口尚未发送双臂控制命令，实机切换和保持需现场验收**。
 合成双臂 ROS 数据 + 真实三相机录制 30 帧，10.008 Hz、全部对齐并导出；不是实际任务示教。
 兼容 HDF5 已被 174 原转换脚本的 inspect_episode 读通过，含 14 维状态/目标、三路 RGB 图像、切换标签。
+175 独立 pika_export 环境已完成 LeRobot v3.0 端到端转换：legacy28 动作、14 维状态、三路视频各 30 帧、30 条切换标签，10 Hz；逐帧对照通过，pip check 无依赖冲突。
+验收数据位于 `acceptance/aloha_compat_lerobot28_test/`，报告为 `acceptance/lerobot28_verification.json`。
+100 组双臂 FK 与 174 原环境结果完全一致，其中 3 组留作固定回归样本；本地 26 项测试通过。
 
 新入口复用旧安装版 FK/IK、原夹爪几何换算；双臂 CAN 控制和切换管理是新增代码，非厂家原版双 Sense 程序。
 旧驱动的 MOVE_J 30%、夹爪参数 1000、0..80 mm 范围保持一致，不增加 5 mm 行程/5 mm/s 限制。
@@ -100,9 +103,9 @@ bash session.sh --task '左臂拿起物体，右臂接过并放入容器' \
 
 `reference_174/` 是从 174 复制的 v3.0/v2.1 转换源码，provenance.json 记录来源及 SHA256。
 174 默认 legacy28 是**由实测 qpos/FK 得出的 28 维动作**，不是 HDF5 原始目标。
-175 包装入口默认 raw 14 维目标；可显式 `--action-layout legacy28` 复用旧表示。
+175 包装入口按用户选择默认 legacy28，与 174 一致；HDF5 仍保留实际下发的 14 维目标，显式 `--action-layout raw` 可另行导出。
 
-175 新建独立转换环境（不改控制环境）：
+175 新建独立转换环境（不改控制环境）。主要版本与 174 对齐：LeRobot 0.4.4、PyTorch 2.10.0（175 用 CPU 包）、NumPy 2.2.6、SciPy 1.14.1。安装脚本使用清华 PyPI 镜像下载通用依赖，可用 `PIKA_EXPORT_PYPI_INDEX` 覆盖：
 
 ```bash
 bash setup_export_env.sh --execute
@@ -110,10 +113,18 @@ export LEROBOT_PYTHON="$HOME/miniconda3/envs/pika_export/bin/python"
 bash convert_lerobot.sh \
   --input_dir "$HOME/datasets/pika_piper/task_handover/hdf5" \
   --output_dir "$HOME/datasets/pika_piper/task_handover_lerobot" \
-  --fps 10 --action-layout raw --image-color-order rgb \
+  --fps 10 --action-layout legacy28 --image-color-order rgb \
   --prompt '左臂拿起物体，右臂接过并放入容器'
 ```
 
 输出目录必须独立且为空。包装入口会检查帧率/色彩属性，并把切换标签保存到
 `meta/control_modes.jsonl`，这些标签不是 LeRobot 内置训练 feature。HDF5 和原始数据不会被删改或上传。
-legacy28 分支额外依赖旧 v2.1 FK helper 与 piper_sdk，需在转换环境核对后使用；默认 raw 不需要 FK。
+legacy28 复用 174 的 v2.1 helper 和原样保存的 `reference_174/piper_fk.py`，仅将 helper 的 SDK 导入改为该离线 FK 文件，不依赖 CAN。FK 默认启用原版 J2/J3 的 2° DH 偏移。末端 xyz 单位为毫米，姿态顺序为 qx,qy,qz,qw；动作顺序为左位姿7、右位姿7、左关节6、右关节6、左右夹爪各1。
+
+验收自己的转换结果：
+
+```bash
+"$LEROBOT_PYTHON" verify_lerobot.py \
+  "$HOME/datasets/pika_piper/task_handover/hdf5" \
+  "$HOME/datasets/pika_piper/task_handover_lerobot"
+```

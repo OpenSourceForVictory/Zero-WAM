@@ -1,6 +1,6 @@
 """175 wrapper around the pinned 174 LeRobot v3.0 converter.
 
-Defaults: raw 14D commands, RGB, 10 Hz. Preserve switching labels in a sidecar.
+Defaults: 174-compatible state-derived 28D actions, RGB, 10 Hz. Preserve switching labels in a sidecar.
 """
 import json
 from pathlib import Path
@@ -14,7 +14,7 @@ import convert_to_lerobot_v30 as reference
 
 def main():
     args=reference.parse_args()
-    if not any(x=='--action-layout' or x.startswith('--action-layout=') for x in sys.argv[1:]):args.action_layout='raw'
+    if not any(x=='--action-layout' or x.startswith('--action-layout=') for x in sys.argv[1:]):args.action_layout='legacy28'
     if not any(x=='--fps' or x.startswith('--fps=') for x in sys.argv[1:]):args.fps=10
     source=Path(args.input_dir).resolve()
     for path in source.rglob('*.hdf5'):

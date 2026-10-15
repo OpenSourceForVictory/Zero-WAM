@@ -1,4 +1,4 @@
-"""Read-only verification of a raw-action LeRobot conversion against source HDF5."""
+"""Read-only verification of a LeRobot conversion against source HDF5."""
 import argparse
 import json
 from pathlib import Path
@@ -12,7 +12,8 @@ def verify(source,converted):
     source=Path(source);converted=Path(converted)
     info=json.loads((converted/'meta/info.json').read_text())
     mapping=json.loads((converted/'meta/source_episodes.json').read_text())
-    if mapping['action_layout']!='raw':raise ValueError('This verification expects raw action semantics')
+    from convert_lerobot import reference
+    assert mapping['action_layout'] in ('raw','legacy28')
     tables=[pq.read_table(p).to_pydict() for p in sorted((converted/'data').rglob('*.parquet'))]
     rows={}
     for table in tables:
@@ -23,7 +24,8 @@ def verify(source,converted):
         samples=sorted(rows[ep['episode_index']],key=lambda r:r['frame_index'])
         with h5py.File(source/ep['source']) as f:
             assert len(samples)==len(f['action'])==ep['length']
-            np.testing.assert_allclose(np.asarray([r['action'] for r in samples]),f['action'][:],atol=1e-7)
+            expected_actions=reference.legacy_actions(f) if mapping['action_layout']=='legacy28' else f['action'][:]
+            np.testing.assert_allclose(np.asarray([r['action'] for r in samples]),expected_actions,atol=1e-7)
             np.testing.assert_allclose(np.asarray([r['observation.state'] for r in samples]),f['observations/qpos'][:],atol=1e-7)
             count+=len(samples)
     assert count==info['total_frames'] and len(mapping['episodes'])==info['total_episodes']
@@ -44,7 +46,7 @@ def verify(source,converted):
     assert labels==expected
     report={'valid':True,'episodes':len(rows),'frames':count,'camera_count':camera_count,
             'decoded_video_frames':video_counts,'switch_labels':len(labels),'fps':info['fps'],
-            'action_semantics':'raw HDF5 target; left7,right7'}
+            'action_layout':mapping['action_layout'],'action_shape':info['features']['action']['shape']}
     print(json.dumps(report,indent=2));return report
 
 
