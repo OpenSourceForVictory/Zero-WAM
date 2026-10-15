@@ -568,3 +568,24 @@ https://agilexsupport.yuque.com/staff-hso6mo/peoot3/vm7e26ho2hmuw0ng?singleDoc=
 标题为《【对外】Pika 产品用户手册 beta（CN） ROS2》，更新时间 2026-09-15。
 当前 Sense + Piper 原装夹爪应以 6.2 遥操作机械臂及其链接流程为依据，不把 Pika Gripper 专用说明混用。
 手册正文已取得，具体遥操作子文档尚需逐项核对；0..80 mm 边界依据是配套驱动源码。
+
+### 左臂遥操作首次启动（2026-10-15 19:48）
+
+已阅读官方遥操作子文档 https://agilexsupport.yuque.com/staff-hso6mo/gp5vq8/ey6ocmxoldt9hgn1 。
+原装夹爪适用单 Sense 流程 A；启用前 Sense 朝向与末端保持一致，快速开合两次触发遥操作。
+最新版文档使用 pika_remote_agx_arm，175 现有可用配套安装为 pika_remote_piper；本轮沿用已有节点，不能声称完全等同最新版。
+在用户确认左臂工作区清空后，启动以下两个进程：
+
+```bash
+cd ~/piper_runtime/collection
+bash run.sh --profile profile_single_left.json sensors --execute
+# 另一终端
+bash run.sh --profile profile_single_left.json teleop --execute
+```
+
+左臂 USB 1-2.2:1.0 对应 can1，右臂未启动控制节点。原配套驱动 auto_enable 会使能并闭合夹爪；
+启动后观察到六关节仍为零、夹爪约 0.5 mm。Tracker 约 100 Hz，反馈/FK 约 200 Hz。
+`acceptance/teleop_left_20261015_194940/messages.json`：观察 30 秒未收到 teleop 状态或 action，仍等待用户双击触发；未完成位姿跟随验证。
+Sense 松开端原代码会将大于 1.67 rad 钳制并设置 error=true，此已知兼容问题仍存在于完整 ROS 栈，不能将夹爪独立测试的修改当作 ROS 节点已修复。
+进程保持运行等待触发：传感器 ROS 日志 2026-10-15-19-48-24-206337-piperpika-23402，
+控制 ROS 日志 2026-10-15-19-48-56-041753-piperpika-23691。
