@@ -23,3 +23,5 @@ benchmark_logs/
 *.pem
 *.key
 .env
+/collection/acceptance/
+/collection/*.local.json
