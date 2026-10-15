@@ -460,3 +460,27 @@ Sense 全部 error=true，角度被旧驱动截到 1.67 rad，距离约 0.0967 m
 按端点 0.04..1.71、暂定容差 0.05 rad 映射覆盖 0..1，无映射拒绝，最大相邻变化 0.11 rad，
 motion_screen_passed=true。实际端点存在少量变化，容差内归一化饱和不应被描述为绝对零点或精度校准。
 此结果通过当前输入范围/跳变筛查，仍未修改旧驱动或接入 Piper 夹爪输出，机械臂未使能或运动。
+
+### 夹爪单独控制入口准备（2026-10-15 19:23）
+
+新增 `sense_reader.py`（独占只读串口）及 `gripper_only_probe.py`，后者默认不打开 CAN，
+仅计算目标；必须显式 `--execute` 才调用 SDK 的 GripperCtrl，代码不调用关节使能、关节控制、回零。
+按 USB 位置解析左臂 CAN，校验 Sense 相机序列号与串口所在 Hub 对应，拒绝已存在的控制/串口进程。
+执行模式 ConnectPort 使用 piper_init=False，初始目标取实时夹爪反馈，最大相对变化 5 mm、目标斜率 5 mm/s。
+0..70 mm 是保守的软件测试范围，尚非实测机械行程；力矩参数 200（SDK 单位 0.001 N·m），不是夹持力牛顿值。
+输入超时/越界/跳变、反馈超时/故障或跟踪误差超过 2 mm 会停止继续发新目标。
+正常结束或异常退出断开通信，不发失能或回零，若已使能则保留最后目标；此停止行为尚待实机验证。
+旧自动使能节点会启用全部关节并关闭夹爪，本次夹爪测试不使用该节点。
+
+```bash
+cd ~/piper_runtime/collection
+~/miniconda3/envs/pika/bin/python gripper_only_probe.py --seconds 5
+# 仅在现场确认夹爪区域清空后执行：
+~/miniconda3/envs/pika/bin/python gripper_only_probe.py --seconds 5 --execute
+```
+
+空跑 `acceptance/gripper_probe_20261015_192338/`：208 条目标样本，0 次夹爪命令，未打开 CAN。
+18 项离线检查通过。随后仅将左侧 can1（USB 1-2.2:1.0）启用为 1 Mbps，读取反馈，无使能或运动命令。
+夹爪反馈 200 Hz、开口 43.8 mm、driver_enable_status=false、homing_status=false，故障位均 false，
+机械臂状态 STANDBY/NORMAL、错误码 0。未修改零点；不能将 homing_status=false 解释为已完成校准。
+等待现场夹爪区域清空确认，再执行短时小幅控制；旧 ROS 采集节点尚未替换为此映射。
