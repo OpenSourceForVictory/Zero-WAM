@@ -221,3 +221,18 @@ bash run.sh locator-check
 所有探测进程已结束，CAN 仍为 DOWN，未启动机械臂控制。
 校准文件存在性不代表有效，libsurvive 初始化时会更新其配置文件时间。
 还需结合现场 Tracker 电源/基站状态进一步检查定位链路。
+
+### 基站确认后的底层诊断
+
+现场确认两个基站均绿灯常亮且无遮挡。随后用 GDB 和 LIBUSB_DEBUG=4 对旧定位节点
+作短时诊断，未启动任何机械臂节点。日志在 acceptance/usb_diagnosis/：
+
+- gdb.txt：确认 SIGABRT 出现在 libusb 的互斥锁断言，旧定位器进程终止。
+- libusb_debug.txt：首先出现 `urb type=1 status=-71 transferred=0`、
+  `low-level bus error -71`；随后 T21 被库标为 Device disconnect，
+  清理传输时触发互斥锁断言。USB 传输错误在先，进程崩溃在后。
+
+这将当前阻塞定位到 Tracker USB 数据链路及旧驱动错误处理，但尚不足以区分
+线缆、Hub/供电、Tracker 工作状态或软件兼容性。不能仅凭基站正常就认定 Tracker
+已开机正常工作，也不能仅凭 -71 就断言某根线已损坏。
+尚未有任何有效左右位姿，不解除采集/遥操作前置检查，不绕过错误继续运行。
