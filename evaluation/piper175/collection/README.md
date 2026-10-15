@@ -31,7 +31,7 @@
 
 1. 接入两只 Sense（包含 Tracker），确认基站供电、位置与标定；
    当前配置保留旧 Tracker ID：左 LHR-5E557D95、右 LHR-F7A7E2FD。
-2. 检查 `profile.json` 的左右串口；默认 `/dev/ttyUSB50`、`/dev/ttyUSB51`。
+2. 检查 `profile.json` 的左右串口；当前固定别名为 `/dev/pika-sense-left`、`/dev/pika-sense-right`。
    如设备换口，按厂家绑定流程重新核对，不猜测 `/dev/ttyUSB0/1` 的左右。
 3. 旧校准文件存在于 `~/.config/libsurvive/config.json`，不代表现场布局仍然有效。
    移动基站后按厂家说明重新校准。旧工具路径：
@@ -178,3 +178,46 @@ HDF5 包含 `observations/qpos`、`action`（均 N×14）、时间戳和 NPZ 相
 
 175 当前依赖和三相机检查通过；Sense 串口未连接、CAN DOWN，遥操作验收待现场接入。
 文件 legacy_manifest.json 是检查基线，不要通过随意更新哈希跳过旧程序变更审查。
+
+
+## 2026-10-15 现场接入与权限修复
+
+两只 Tracker 已接入并通过 USB 序列号核对：左 LHR-5E557D95、右 LHR-F7A7E2FD。
+同一 Sense USB Hub 下的串口分别在 1-1.2.4:1.0（左）和 1-1.1.4:1.0（右）。
+已部署 99-pika175-access.rules，仅为这两个串口和指定 Tracker 授权 piperpika 用户，
+使用 0660 权限，没有执行全设备 chmod 777。
+配置使用固定别名，检查器同时核对对应 Tracker 与串口处于同一 Hub；更换 USB 口需重新核对。
+
+新机/重装时部署：
+
+```bash
+sudo install -m 0644 ~/piper_runtime/collection/99-pika175-access.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=tty
+sudo udevadm trigger --subsystem-match=hidraw
+sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=28de
+sudo udevadm settle
+```
+
+相机服务此前随最后一个 SSH 会话结束而停止。已执行
+`sudo loginctl enable-linger piperpika`，使用户服务在退出登录后继续运行，三相机恢复在线。
+
+定位单独检查（约20秒，结束后自动关闭本次定位进程，不启动串口控制桥或机械臂节点）：
+
+```bash
+cd ~/piper_runtime/collection
+bash run.sh locator-check
+```
+
+结果与原生日志保存到 acceptance/locator_日期_时间/。USB 已识别与定位有效是两项不同检查。
+这一步不启动 CAN，不使能、不回零、不执行机械臂遥操作。
+
+
+定位检查尚未通过：15:47、15:49、15:51 的三次对照中，两只 Tracker 被旧程序打开后，
+均报告 `T21 Device disconnect: 1`，随后 libusb 的 pthread_mutex_lock 断言失败。
+左右位姿消息计数均为 0。去掉 Conda LD_PRELOAD、临时改用另一份已安装 libsurvive 库，
+都没有解决。没有替换旧库或强制重标定；内核日志未见同期 USB 拔出/重新枚举，
+因此不能直接认定为物理掉线，也不能认定只是基站未开启。
+所有探测进程已结束，CAN 仍为 DOWN，未启动机械臂控制。
+校准文件存在性不代表有效，libsurvive 初始化时会更新其配置文件时间。
+还需结合现场 Tracker 电源/基站状态进一步检查定位链路。

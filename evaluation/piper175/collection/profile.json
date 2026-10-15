@@ -5,7 +5,7 @@
   "camera_url": "http://127.0.0.1:8080",
   "camera_serials": ["CC1C8100041", "CC1C810002Y", "CC1C8100015"],
   "camera_roles": ["high", "left", "right"],
-  "serial_ports": ["/dev/ttyUSB50", "/dev/ttyUSB51"],
+  "serial_ports": ["/dev/pika-sense-left", "/dev/pika-sense-right"],
   "tracker_codes": ["LHR-5E557D95", "LHR-F7A7E2FD"],
   "can_usb_ports": ["1-2.2:1.0", "1-2.1:1.0"],
   "hz": 10,

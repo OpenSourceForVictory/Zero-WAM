@@ -1,0 +1,7 @@
+# 175 current USB topology; left/right verified using Tracker IDs on the same hubs.
+SUBSYSTEM=="tty", KERNEL=="ttyUSB*", KERNELS=="1-1.2.4:1.0", OWNER="piperpika", GROUP="dialout", MODE="0660", SYMLINK+="pika-sense-left"
+SUBSYSTEM=="tty", KERNEL=="ttyUSB*", KERNELS=="1-1.1.4:1.0", OWNER="piperpika", GROUP="dialout", MODE="0660", SYMLINK+="pika-sense-right"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="28de", ATTRS{serial}=="LHR-5E557D95", OWNER="piperpika", MODE="0660"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="28de", ATTRS{serial}=="LHR-F7A7E2FD", OWNER="piperpika", MODE="0660"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="28de", ATTR{serial}=="LHR-5E557D95", OWNER="piperpika", MODE="0660"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="28de", ATTR{serial}=="LHR-F7A7E2FD", OWNER="piperpika", MODE="0660"

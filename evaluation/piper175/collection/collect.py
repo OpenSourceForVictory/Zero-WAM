@@ -45,6 +45,23 @@ def channels(p):
     return result
 
 
+def verify_sense_hubs(p):
+    devices=list(Path('/sys/bus/usb/devices').iterdir())
+    result={}
+    for side,port,code in zip(('left','right'),p['serial_ports'],p['tracker_codes']):
+        tty=Path(port).resolve().name
+        device=(Path('/sys/class/tty')/tty/'device').resolve()
+        serial_usb=next((x for x in device.parents if (x/'idVendor').exists()),None)
+        trackers=[x for x in devices if (x/'serial').exists() and (x/'serial').read_text().strip()==code]
+        if serial_usb is None or len(trackers)!=1:
+            raise RuntimeError(f'{side}: serial device or Tracker {code} missing')
+        hub=serial_usb.name.rsplit('.',1)[0]+'.'
+        if not trackers[0].name.startswith(hub):
+            raise RuntimeError(f'{side}: Tracker and serial are on different hubs; recheck left/right binding')
+        result[side]={'serial':tty,'tracker':code,'usb_hub':hub[:-1]}
+    return result
+
+
 def conflicting_processes():
     lines = subprocess.check_output(['ps','-eo','pid,args'], text=True).splitlines()
     names = ('real_robot_inference_merged.py','recover_and_zero.sh','go_zero.py','recover_control.py')
@@ -66,6 +83,7 @@ def check(p):
         item('import '+module,lambda module=module: bool(importlib.import_module(module)))
     for port in p['serial_ports']:
         item(port, lambda port=port: Path(port).exists() and os.access(port,os.R_OK|os.W_OK))
+    item('Sense/Tracker hub mapping',lambda: verify_sense_hubs(p))
     item('CAN mapping',lambda: channels(p))
     def can_up():
         devices = json.loads(subprocess.check_output(['ip','-j','-d','link','show','type','can']))
@@ -270,6 +288,7 @@ def main():
     parser.add_argument('--profile',default=str(ROOT/'profile.json'))
     subs=parser.add_subparsers(dest='command',required=True)
     subs.add_parser('check')
+    subs.add_parser('locator-check')
     subs.add_parser('streams')
     for name in ('sensors','teleop'):
         sub=subs.add_parser(name); sub.add_argument('--execute',action='store_true')
@@ -279,6 +298,9 @@ def main():
         sub=subs.add_parser(name); sub.add_argument('episode')
     args=parser.parse_args(); p=load_profile(args.profile)
     if args.command=='check': return 0 if check(p) else 2
+    if args.command=='locator-check':
+        from probe_locator import run
+        return 0 if run(p) else 2
     if args.command in ('validate','export'):
         if args.command=='validate': return 0 if validate(args.episode) else 2
         export(args.episode); return 0
