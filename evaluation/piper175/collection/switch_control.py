@@ -245,6 +245,16 @@ class Runtime:
             self.node.destroy_node();self.events.close()
 
 
+def send_reply(conn,result):
+    # A GUI status client can time out while an arm selection is in progress.
+    # Losing that client must not terminate the CAN controller.
+    try:
+        conn.sendall(json.dumps(result).encode())
+        return True
+    except (BrokenPipeError,ConnectionResetError,socket.timeout):
+        return False
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('command',choices=['serve','left','right','preview-left','preview-right','pause','status','stop'])
@@ -297,7 +307,7 @@ def main():
                         try:runtime.pause();runtime.kill_frontend()
                         except Exception:pass
                         result={**runtime.status(),'command_error':repr(exc)}
-                    conn.sendall(json.dumps(result).encode())
+                    send_reply(conn,result)
     finally:
         runtime.close();SOCKET.unlink(missing_ok=True)
 

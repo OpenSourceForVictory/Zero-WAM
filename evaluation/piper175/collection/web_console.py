@@ -46,7 +46,7 @@ def task_path(root,name):
 class Console:
     def __init__(self,data_root):
         self.root=Path(data_root).expanduser().resolve();self.root.mkdir(parents=True,exist_ok=True)
-        self.logs=deque(maxlen=100);self.lock=threading.RLock();self.jobs={};self.controller=None
+        self.logs=deque(maxlen=100);self.lock=threading.RLock();self.rpc_lock=threading.RLock();self.jobs={};self.controller=None
         self.record=None;self.record_lock=None;self.last_result=None
         self.control={'connected':False};self.closed=threading.Event();self.closing=False;self.workers=[]
         self.poller=threading.Thread(target=self.poll,daemon=True);self.poller.start()
@@ -54,12 +54,18 @@ class Console:
     def log(self,text):
         with self.lock:self.logs.append({'time':time.strftime('%H:%M:%S'),'text':str(text)})
 
+    def call(self,command,timeout=45):
+        with self.rpc_lock:return rpc(command,timeout)
+
     def poll(self):
         while not self.closed.is_set():
-            try:control={'connected':True,**rpc('status',1.5)}
+            if not self.rpc_lock.acquire(blocking=False):
+                self.closed.wait(.2);continue
+            try:control={'connected':True,**self.call('status',1.5)}
             except Exception as exc:
                 # Do not present an old active state as a current observation.
                 control={'connected':False,'message':str(exc)}
+            finally:self.rpc_lock.release()
             with self.lock:self.control=control
             self.closed.wait(1)
 
@@ -105,7 +111,7 @@ class Console:
 
     def do_controller_start(self,body):
         try:
-            current=rpc('status',2)
+            current=self.call('status',2)
         except (OSError,ValueError):current=None
         if current:
             if not current.get('execute'):raise ValueError('当前是只读预览，请先退出预览')
@@ -118,14 +124,14 @@ class Console:
         while time.monotonic()<deadline:
             if self.controller.poll() is not None:raise RuntimeError(logfile.read_text()[-2200:])
             try:
-                status=rpc('status',1)
+                status=self.call('status',1)
                 if status.get('error'):raise RuntimeError(status['error'])
                 self.log('控制就绪，双臂保持当前位置；请选择左臂或右臂');return
             except OSError:time.sleep(.1)
         raise RuntimeError('启动超时，请查看 '+str(logfile))
 
     def control_command(self,command):
-        status=rpc(command)
+        status=self.call(command)
         with self.lock:self.control={'connected':True,**status}
         if status.get('error'):raise RuntimeError(status['error'])
     def do_left(self,body):self.control_command('left')
@@ -138,7 +144,7 @@ class Console:
 
     def do_start(self,body):
         if self.record:raise ValueError('已有一条正在录制或等待处理')
-        control=rpc('status',2)
+        control=self.call('status',2)
         if not control.get('execute') or control.get('error') or control.get('phase') not in ('active','paused'):
             raise ValueError('控制服务未就绪；先启动控制并检查状态')
         name=body.get('task','');task=task_path(self.root,name);prompt=body.get('prompt','').strip()
@@ -272,9 +278,9 @@ class Console:
             if group!='convert':worker.join(timeout=185)
         # Service stop also ends its own control session without disabling motors.
         try:
-            if self.controller and self.controller.poll() is None:rpc('pause')
+            if self.controller and self.controller.poll() is None:self.call('pause')
             if self.record:self.finish(False)
-            if self.controller and self.controller.poll() is None:rpc('stop');self.controller.wait(timeout=15)
+            if self.controller and self.controller.poll() is None:self.call('stop');self.controller.wait(timeout=15)
         finally:self.closed.set();self.release_record_lock()
 
 

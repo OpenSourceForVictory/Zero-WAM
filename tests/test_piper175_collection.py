@@ -302,3 +302,17 @@ def test_frontend_cleanup_reaps_nodes_after_launcher_exit(monkeypatch):
     finally:
         if child.poll() is None:child.kill();child.wait()
         child.stdout.close()
+
+def test_disconnected_status_client_does_not_kill_control(monkeypatch):
+    import socket
+    monkeypatch.syspath_prepend(str(ROOT))
+    from switch_control import send_reply
+    server,client=socket.socketpair()
+    client.close()
+    try:assert send_reply(server,{'phase':'active'}) is False
+    finally:server.close()
+    server,client=socket.socketpair()
+    try:
+        assert send_reply(server,{'phase':'active'}) is True
+        assert json.loads(client.recv(1024))=={'phase':'active'}
+    finally:server.close();client.close()

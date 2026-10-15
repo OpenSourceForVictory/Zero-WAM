@@ -129,3 +129,17 @@ def test_start_save_workflow_keeps_episode_identity_and_exports(console,monkeypa
     assert (task/'hdf5/episode_0.hdf5').read_bytes()==b'exported'
     review=json.loads((task/'raw/episode_20261015_120000_42/review.json').read_text())
     assert review['accepted'] and review['hdf5'].endswith('episode_0.hdf5')
+
+def test_status_query_waits_for_switch_rpc(console,monkeypatch):
+    entered=threading.Event();release=threading.Event();queried=threading.Event()
+    def fake_rpc(command,timeout=45):
+        if command=='left':entered.set();assert release.wait(2)
+        else:queried.set()
+        return {'phase':'active','error':None}
+    monkeypatch.setattr(web,'rpc',fake_rpc)
+    control=threading.Thread(target=console.control_command,args=('left',));control.start()
+    assert entered.wait(1)
+    query=threading.Thread(target=console.call,args=('status',));query.start()
+    assert not queried.wait(.1)
+    release.set();control.join(2);query.join(2)
+    assert queried.is_set()
