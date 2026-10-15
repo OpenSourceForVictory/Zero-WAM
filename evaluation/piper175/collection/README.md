@@ -1,3 +1,5 @@
+网页入口：**http://192.168.8.175:8081/**，175 桌面“Piper双臂数据采集”。支持开始/保存/删除/退出录制、左右切换与 28 维转换，详见 [DUAL_COLLECTION.md](DUAL_COLLECTION.md)。
+
 # 当前入口：单 Sense 切换双臂采集
 
 当前需求为一个正常 Sense 顺序操控两臂、持续记录双臂和三相机，详见 [DUAL_COLLECTION.md](DUAL_COLLECTION.md)。

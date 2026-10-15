@@ -1,0 +1,13 @@
+[Unit]
+Description=Piper dual arm data collection console
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/piper_runtime/collection
+ExecStart=/bin/bash %h/piper_runtime/collection/web_console.sh
+TimeoutStopSec=210
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

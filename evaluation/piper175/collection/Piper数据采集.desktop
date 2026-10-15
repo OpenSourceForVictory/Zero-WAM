@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Piper双臂数据采集
+Comment=单 Sense 双臂切换、三相机录制与 28 维数据转换
+Exec=/bin/bash /home/piperpika/piper_runtime/collection/open_console.sh
+Icon=camera-video
+Terminal=false
+Categories=Utility;
