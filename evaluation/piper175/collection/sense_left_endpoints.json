@@ -1,0 +1,11 @@
+{
+  "status": "measured_only_not_applied",
+  "sense_d405_serial": "242623072141",
+  "closed_rad": 0.04,
+  "open_rad": 1.71,
+  "samples_per_endpoint": 625,
+  "open_evidence": "acceptance/endpoint_20261015_191033",
+  "closed_evidence": "acceptance/endpoint_20261015_191141",
+  "candidate_mapping": "clip((raw_rad - closed_rad) / (open_rad - closed_rad), 0, 1)",
+  "note": "Only operator-held endpoints measured. No hardware zero changed. Not loaded by control code. Intermediate motion, repeatability, out-of-range handling and robot gripper travel still require validation."
+}
