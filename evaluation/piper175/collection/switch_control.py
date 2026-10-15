@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 from collect import channels, check, conflicting_processes
 from core import load_profile
@@ -139,14 +140,36 @@ class Runtime:
             self.mode_pub.publish(self.String(data=json.dumps(self.status())))
 
     def kill_frontend(self):
-        if self.child and self.child.poll() is None:
-            os.killpg(self.child.pid,signal.SIGINT)
-            try:self.child.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.child.pid,signal.SIGTERM)
-                try:self.child.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    os.killpg(self.child.pid,signal.SIGKILL); self.child.wait(timeout=2)
+        # ROS launch nodes may have independent sessions and outlive launch.
+        # Match the unique frontend namespace, including orphaned nodes.
+        index=getattr(self,'frontend_index',None)
+        names={f'__node:={name}{index}'.encode() for name in
+               ('piper_FK','piper_IK','teleop_piper')} if index else set()
+        owned={}
+        for proc in Path('/proc').glob('[0-9]*'):
+            try:
+                argv=(proc/'cmdline').read_bytes().split(b'\0')
+                stat=(proc/'stat').read_text().rsplit(')',1)[1].split()
+                if names.intersection(argv) or (self.child and int(proc.name)==self.child.pid):
+                    owned[int(proc.name)]=stat[19]
+            except (OSError,IndexError):continue
+        def alive(pid,start):
+            try:
+                fields=Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()
+                return fields[19]==start and fields[0]!='Z'
+            except (OSError,IndexError):return False
+        for sig,timeout in ((signal.SIGINT,3),(signal.SIGTERM,2),(signal.SIGKILL,2)):
+            pending={pid:start for pid,start in owned.items() if alive(pid,start)}
+            if not pending:break
+            for pid in pending:
+                try:os.kill(pid,sig)
+                except ProcessLookupError:pass
+            deadline=time.monotonic()+timeout
+            while time.monotonic()<deadline and any(alive(pid,start) for pid,start in pending.items()):
+                time.sleep(.05)
+        if any(alive(pid,start) for pid,start in owned.items()):
+            raise RuntimeError('Frontend process cleanup failed; refusing to switch')
+        if self.child:self.child.wait(timeout=2)
         self.child=None
         self.ready=False;self.ik_at=0.
         if self.child_log:self.child_log.close(); self.child_log=None
@@ -160,7 +183,8 @@ class Runtime:
         with self.lock:
             if time.monotonic()-self.pose_at>.2 or time.monotonic()-self.sense_at>.2:
                 raise RuntimeError('Sense/Tracker input missing or stale')
-            generation=self.selection.prepare(side); index='_switch'+str(generation)
+            generation=self.selection.prepare(side); index='_switch'+uuid.uuid4().hex[:12]+'_'+str(generation)
+            self.frontend_index=index
             self.ik_at=0.;self.ready=False;self.frontend_started_at=time.time()
             if self.source_pub is None:
                 self.source_pub=self.node.create_publisher(self.JointState,'/pika_switch/source_feedback',10)

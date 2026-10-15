@@ -282,3 +282,23 @@ def test_pinned_fk_matches_174_reference_values(monkeypatch):
     left,right=namespace['compute_eff_pose'](np.asarray(golden['qpos'],dtype=np.float32),C_PiperForwardKinematics())
     np.testing.assert_allclose(left,golden['left'],rtol=0,atol=1e-5)
     np.testing.assert_allclose(right,golden['right'],rtol=0,atol=1e-5)
+
+def test_frontend_cleanup_reaps_nodes_after_launcher_exit(monkeypatch):
+    import subprocess
+    import uuid
+    monkeypatch.syspath_prepend(str(ROOT))
+    from switch_control import Runtime
+    index='_switch_test_'+uuid.uuid4().hex
+    child=subprocess.Popen([sys.executable,'-u','-c',
+        'import signal,time; signal.signal(signal.SIGINT,signal.SIG_IGN); print("ready",flush=True); time.sleep(60)',
+        '__node:=piper_IK'+index],stdout=subprocess.PIPE,text=True,start_new_session=True)
+    try:
+        assert child.stdout.readline().strip()=='ready'
+        runtime=Runtime.__new__(Runtime)
+        runtime.frontend_index=index;runtime.child=None;runtime.child_log=None
+        runtime.kill_frontend()
+        assert child.wait(timeout=1)!=0
+        assert runtime.ready is False and runtime.ik_at==0
+    finally:
+        if child.poll() is None:child.kill();child.wait()
+        child.stdout.close()
