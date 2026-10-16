@@ -89,6 +89,29 @@ def make_handler(feeds):
                     result[serial]['frame_intervals_ms']=[round((b-a)*1000,2) for a,b in zip(times,times[1:])]
 
                 return self.respond(200, 'application/json', json.dumps(result).encode())
+            if path == '/camera/high.npz':
+                # Independent read-only cursor; never consumes another recorder's frames.
+                try:
+                    after=float(parse_qs(urlsplit(self.path).query).get('after',['0'])[0])
+                    if not np.isfinite(after):raise ValueError()
+                except ValueError:
+                    return self.respond(400,'text/plain',b'Invalid cursor')
+                camera=feeds['CC1C8100041'].camera
+                deadline=time.monotonic()+.25
+                while True:
+                    with camera.lock:
+                        fresh=[(epoch_offset+t,f) for t,f in camera.frames if epoch_offset+t>after]
+                        error=camera.error
+                    if error:return self.respond(503,'text/plain',b'Camera error')
+                    if fresh:
+                        stamp,frame=fresh[-1] if after==0 else fresh[0]
+                        if not -.02<=time.time()-stamp<.2:
+                            return self.respond(503,'text/plain',b'Camera frame stale')
+                        output=io.BytesIO()
+                        np.savez(output,high=frame,timestamp=np.array(stamp))
+                        return self.respond(200,'application/octet-stream',output.getvalue())
+                    if time.monotonic()>deadline:return self.respond(503,'text/plain',b'No new frame')
+                    time.sleep(.002)
             if path == '/observation.npz':
                 # Lossless BGR frames for the inference client, independent of
                 # the 10 FPS JPEG encoder. Shares capture with the web viewer.

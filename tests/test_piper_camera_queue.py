@@ -43,3 +43,19 @@ def test_common_time_recovers_pairing_after_one_camera_drops_frames():
     assert [x[0] for x in pair]==[1.15,1.15,1.16]
     assert camera_web.pair_frames(queues,[1.15,1.15,1.16]) is None
     assert camera_web.pair_frames([[(1.,None)],[(1.3,None)],[(1.4,None)]],[0,0,0]) is None
+
+
+def test_high_endpoint_is_independent_of_wrist_cameras():
+    now=time.monotonic()
+    camera=SimpleNamespace(lock=threading.Lock(),frames=deque([(now,np.ones((4,4,3),np.uint8))]),error=None)
+    feeds={'CC1C8100041':SimpleNamespace(camera=camera)}
+    server=camera_web.ThreadingHTTPServer(('127.0.0.1',0),camera_web.make_handler(feeds))
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        url=f'http://127.0.0.1:{server.server_port}/camera/high.npz'
+        with urlopen(url) as r:first=dict(np.load(io.BytesIO(r.read())))
+        with urlopen(url) as r:second=dict(np.load(io.BytesIO(r.read())))
+        assert set(first)=={'high','timestamp'}
+        assert first['timestamp']==second['timestamp']
+        assert len(camera.frames)==1
+    finally:server.shutdown();server.server_close();thread.join()

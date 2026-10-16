@@ -156,10 +156,12 @@ class Console:
         task=body.get('task',self.config['task']);task_path(self.root,task)
         frames=body.get('max_frames',self.config['max_frames']);fps=body.get('fps',self.config['fps'])
         if type(frames) is not int or not 1<=frames<=1000000:raise ValueError('最大帧数须为 1–1000000 的整数')
-        if type(fps) is not int or not 1<=fps<=30:raise ValueError('当前三相机采集帧率须为 1–30 Hz')
+        if type(fps) is not int or not 1<=fps<=30:raise ValueError('采集帧率须为 1–30 Hz')
         prompt=body.get('prompt',self.config.get('prompt',''))
         if not isinstance(prompt,str) or len(prompt)>2000:raise ValueError('任务描述须少于 2000 字')
-        return dict(task=task,prompt=prompt.strip(),max_frames=frames,fps=fps)
+        mode=body.get('mode',self.config.get('mode','robot'))
+        if mode not in ('robot','human_video'):raise ValueError('采集模式无效')
+        return dict(task=task,prompt=prompt.strip(),max_frames=frames,fps=fps,mode=mode)
 
     def do_config_save(self,body):
         if self.collection_session or self.record:raise ValueError('请先退出采集会话再修改配置')
@@ -179,6 +181,13 @@ class Console:
     def do_session_start(self,body):
         if self.collection_session or self.record:raise ValueError('采集会话已启动')
         config=self.validate_config(body)
+        if config['mode']=='human_video':
+            from human_video import read_frame
+            read_frame('http://127.0.0.1:8080')
+            self.acquire_record_lock()
+            with self.lock:self.collection_session={**config,'id':secrets.token_hex(8)}
+            self.log('顶部相机视频会话已启动，Enter 开始录制')
+            return
         status=self.call('status',2)
         if not status.get('execute') or status.get('error') or status.get('phase') not in ('active','paused'):
             raise ValueError('请先启动双臂控制并检查数据状态')
@@ -195,6 +204,8 @@ class Console:
 
     def do_start(self,body):
         if self.record:raise ValueError('已有一条正在录制或等待处理')
+        if self.collection_session and self.collection_session.get('mode')=='human_video':
+            return self.start_video()
         control=self.call('status',2)
         if not control.get('execute') or control.get('error') or control.get('phase') not in ('active','paused'):
             raise ValueError('控制服务未就绪；先启动控制并检查状态')
@@ -225,6 +236,22 @@ class Console:
         except Exception:
             if self.record is None and not self.collection_session:self.release_record_lock()
             raise
+
+    def start_video(self):
+        config=self.collection_session;task=task_path(self.root,config['task'])
+        raw=task/'human_video';raw.mkdir(parents=True,exist_ok=True)
+        ident=secrets.token_hex(8);logfile=task/f'video_{ident}.log'
+        episode=raw/('episode_'+time.strftime('%Y%m%d_%H%M%S')+'_'+str(time.time_ns()%1000000000))
+        rec={'id':ident,'mode':'human_video','task':config['task'],'phase':'starting','frames':0,
+             'started_at':time.time(),'before':set(raw.glob('episode_*')),'raw':raw,'episode':str(episode),
+             'logfile':logfile,'auto_save':True}
+        with logfile.open('x') as log:
+            rec['process']=subprocess.Popen([sys.executable,'-u',str(ROOT/'human_video.py'),
+                '--output',str(episode),'--fps',str(config['fps']),'--max-frames',str(config['max_frames'])],
+                stdout=log,stderr=subprocess.STDOUT)
+        with self.lock:self.record=rec
+        threading.Thread(target=self.monitor_record,args=(rec,),daemon=True).start()
+        self.log('正在启动顶部视频录制：'+config['task'])
 
     def monitor_record(self,rec):
         while not self.closed.is_set():
@@ -276,39 +303,49 @@ class Console:
                         manifest=json.loads((episode/'manifest.json').read_text())
                         detail=manifest.get('error','请查看该条 quality.json 和录制日志')
                     raise RuntimeError('录制质量检查失败：'+detail+'；保留原始数据：'+str(episode))
-                from export_aloha import export
-                hdf=rec['raw'].parent/'hdf5'
-                indices=[int(p.stem.split('_')[-1]) for p in hdf.glob('episode_*.hdf5') if p.stem.split('_')[-1].isdigit()]
-                destination=hdf/f'episode_{max(indices,default=-1)+1}.hdf5'
-                export(episode,destination)
-                review.update(accepted=True,reason='saved',hdf5=str(destination))
+                if rec.get('mode')=='human_video':
+                    destination=episode/'video.mp4'
+                    if not destination.is_file():raise RuntimeError('视频文件缺失')
+                    review.update(accepted=True,reason='saved',video=str(destination))
+                else:
+                    self.export_robot_episode(rec,episode,review)
+                    destination=Path(review['hdf5'])
             (episode/'review.json').write_text(json.dumps(review,ensure_ascii=False,indent=2))
-            with self.lock:self.last_result={'saved':save,'episode':str(episode),'hdf5':str(destination) if destination else None}
+            with self.lock:self.last_result={'saved':save,'episode':str(episode),'hdf5':review.get('hdf5'),'video':review.get('video')}
             self.log(('保存完成：'+str(destination)) if save else ('本条未纳入数据集，原始文件保留：'+str(episode)))
         finally:
             if not (episode/'review.json').exists():(episode/'review.json').write_text(json.dumps(review))
             with self.lock:self.record=None
             if not self.collection_session:self.release_record_lock()
 
+    def export_robot_episode(self,rec,episode,review):
+        from export_aloha import export
+        hdf=rec['raw'].parent/'hdf5'
+        indices=[int(p.stem.split('_')[-1]) for p in hdf.glob('episode_*.hdf5') if p.stem.split('_')[-1].isdigit()]
+        destination=hdf/f'episode_{max(indices,default=-1)+1}.hdf5'
+        export(episode,destination)
+        review.update(accepted=True,reason='saved',hdf5=str(destination))
+
     def do_save(self,body):self.finish(True)
     def do_discard(self,body):self.finish(False)
     def do_exit(self,body):
         # Pause first; recording continues through the hold transition.
-        if (ROOT/'.switch.sock').exists():self.control_command('pause')
+        human=(self.collection_session or {}).get('mode')=='human_video'
+        if not human and (ROOT/'.switch.sock').exists():self.control_command('pause')
         self.finish(False)
         with self.lock:self.collection_session=None
         self.release_record_lock()
-        self.log('已退出录制并暂停跟随；已保存条目不受影响')
+        self.log('已退出顶部视频录制；已保存视频不受影响' if human else '已退出录制并暂停跟随；已保存条目不受影响')
 
     def episodes(self,name):
         task=task_path(self.root,name);items=[]
-        for p in sorted((task/'raw').glob('episode_*'),reverse=True):
+        for p in sorted([*(task/'raw').glob('episode_*'),*(task/'human_video').glob('episode_*')],reverse=True):
             try:
                 meta=json.loads((p/'manifest.json').read_text());review=json.loads((p/'review.json').read_text()) if (p/'review.json').exists() else {}
                 quality=json.loads((p/'quality.json').read_text()) if (p/'quality.json').exists() else {}
                 items.append({'id':p.name,'status':'saved' if review.get('accepted') else meta.get('status','unknown') if not review else 'discarded',
                     'frames':quality.get('frames'),'valid':quality.get('valid'),'duration_s':quality.get('duration_s'),
-                    'hdf5':review.get('hdf5'),'task':meta.get('task'),'started_at':meta.get('started_at')})
+                    'hdf5':review.get('hdf5'),'video':review.get('video'),'mode':meta.get('mode','robot'),'task':meta.get('task'),'started_at':meta.get('started_at')})
             except (OSError,ValueError):continue
         return items
 
@@ -320,7 +357,7 @@ class Console:
             except ValueError:continue
             rows=self.episodes(task.name);saved=[x for x in rows if x['status']=='saved']
             tasks.append({'name':task.name,'episodes':len(saved),'frames':sum(x['frames'] or 0 for x in saved),
-                          'bytes':sum(p.stat().st_size for p in (task/'hdf5').glob('episode_*.hdf5'))})
+                          'bytes':sum(p.stat().st_size for p in [*(task/'hdf5').glob('episode_*.hdf5'),*(task/'human_video').glob('episode_*/video.mp4')])})
             for output in sorted(task.glob('lerobot28_*')):
                 if not output.is_dir():continue
                 try:
@@ -363,10 +400,21 @@ class Console:
         stream=io.BytesIO();Image.fromarray(image).save(stream,format='JPEG',quality=85)
         return stream.getvalue()
 
+    def video_path(self,task_name,episode_name):
+        task=task_path(self.root,task_name)
+        if not re.fullmatch(r'episode_\d{8}_\d{6}_\d+',episode_name):raise ValueError('条目无效')
+        folder=(task/'human_video'/episode_name).resolve()
+        if folder.parent!=(task/'human_video').resolve():raise ValueError('视频路径无效')
+        review=json.loads((folder/'review.json').read_text())
+        video=(folder/'video.mp4').resolve()
+        if not review.get('accepted') or video.parent!=folder or not video.is_file():raise ValueError('视频未保存')
+        return video
+
     def do_delete_last(self,body):
-        saved=[row for row in self.episodes(body.get('task','')) if row['status']=='saved']
+        mode=(self.collection_session or {}).get('mode','robot')
+        saved=[row for row in self.episodes(body.get('task','')) if row['status']=='saved' and row.get('mode','robot')==mode]
         if not saved:raise ValueError('没有已保存的轨迹可删除')
-        latest=max(saved,key=lambda row:int(Path(row['hdf5']).stem.split('_')[-1]))
+        latest=max(saved,key=lambda row:row['id'] if mode=='human_video' else int(Path(row['hdf5']).stem.split('_')[-1]))
         if body.get('episode')!=latest['id']:raise ValueError('最近保存条目已变化，请刷新列表后重试')
         self.do_delete(body)
 
@@ -375,8 +423,10 @@ class Console:
         if self.collection_session and body.get('task')!=self.collection_session['task']:raise ValueError('采集会话期间只能操作当前任务')
         task=task_path(self.root,body.get('task',''));name=body.get('episode','')
         if not re.fullmatch(r'episode_\d{8}_\d{6}_\d+',name):raise ValueError('数据条目无效')
-        episode=(task/'raw'/name).resolve()
-        if episode.parent!=(task/'raw').resolve() or not episode.is_dir():raise ValueError('条目不存在')
+        candidates=[(task/folder/name).resolve() for folder in ('raw','human_video') if (task/folder/name).is_dir()]
+        if len(candidates)!=1:raise ValueError('条目不存在或不唯一')
+        episode=candidates[0]
+        if episode.parent not in ((task/'raw').resolve(),(task/'human_video').resolve()):raise ValueError('条目路径无效')
         review=json.loads((episode/'review.json').read_text()) if (episode/'review.json').exists() else {}
         hdf=Path(review['hdf5']).resolve() if review.get('hdf5') else None
         if hdf and hdf.parent!=(task/'hdf5').resolve():raise ValueError('HDF5 来源无效')
@@ -424,6 +474,15 @@ def make_handler(console):
             self.send_header('X-Frame-Options','DENY');self.end_headers()
             try:self.wfile.write(body)
             except (BrokenPipeError,ConnectionResetError):pass
+        def send_video(self,path):
+            with path.open('rb') as stream:
+                self.send_response(200)
+                self.send_header('Content-Type','video/mp4')
+                self.send_header('Content-Length',str(os.fstat(stream.fileno()).st_size))
+                self.send_header('Content-Disposition','attachment; filename="'+path.parent.name+'.mp4"')
+                self.send_header('Cache-Control','no-store');self.end_headers()
+                try:shutil.copyfileobj(stream,self.wfile,1024*1024)
+                except (BrokenPipeError,ConnectionResetError):pass
         def do_GET(self):
             path=urlsplit(self.path).path
             try:
@@ -431,6 +490,10 @@ def make_handler(console):
                 if path in ('/static/vue.global.prod.js','/static/tailwind.min.css'):
                     return self.send(200,(ROOT/path.lstrip('/')).read_bytes(),'text/javascript' if path.endswith('.js') else 'text/css')
                 if path=='/api/status':return self.send(200,console.snapshot())
+                if path=='/api/video':
+                    query=parse_qs(urlsplit(self.path).query)
+                    video=console.video_path(query.get('task',[''])[0],query.get('episode',[''])[0])
+                    return self.send_video(video)
                 if path=='/api/catalog':return self.send(200,console.catalog())
                 if path in ('/api/episode/detail','/api/episode/image'):
                     query=parse_qs(urlsplit(self.path).query)
