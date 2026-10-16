@@ -6,7 +6,7 @@ import io
 from pathlib import Path
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 import cv2
 import numpy as np
@@ -73,20 +73,47 @@ def make_handler(feeds):
                     jpeg, age = feed.snapshot()
                     result[serial] = {'online': jpeg is not None and age is not None and age < 1,
                                       'age_ms': None if age is None else round(age * 1000)}
+                    with feed.camera.lock:
+                        times=[t for t,_ in feed.camera.frames]
+                    result[serial]['capture_hz']=(len(times)-1)/(times[-1]-times[0]) if len(times)>1 else None
+                    result[serial]['frame_intervals_ms']=[round((b-a)*1000,2) for a,b in zip(times,times[1:])]
+
                 return self.respond(200, 'application/json', json.dumps(result).encode())
             if path == '/observation.npz':
                 # Lossless BGR frames for the inference client, independent of
                 # the 10 FPS JPEG encoder. Shares capture with the web viewer.
                 roles = {'high': 'CC1C8100041', 'left': 'CC1C810002Y', 'right': 'CC1C8100015'}
-                frames, stamps = {}, []
-                for role, serial in roles.items():
-                    camera = feeds[serial].camera
-                    with camera.lock:
-                        age = time.monotonic() - camera.timestamp
-                        if camera.error or camera.frame is None or not 0 <= age < .5:
-                            return self.respond(503, 'text/plain', b'Missing or stale camera')
-                        frames[role] = camera.frame.copy()
-                        stamps.append(epoch_offset + camera.timestamp)
+                # Optional cursors select the next unused frame from each bounded queue.
+                # Other clients keep the existing latest-frame behavior.
+                try:
+                    query=parse_qs(urlsplit(self.path).query)
+                    after=json.loads(query['after'][0]) if 'after' in query else None
+                    if after is not None and (len(after)!=3 or not all(np.isfinite(x) for x in after)):
+                        raise ValueError('Invalid frame cursors')
+                except (ValueError,TypeError):
+                    return self.respond(400,'text/plain',b'Invalid frame cursors')
+                deadline=time.monotonic()+.2
+                while True:
+                    frames, stamps = {}, []
+                    for i,(role,serial) in enumerate(roles.items()):
+                        camera=feeds[serial].camera
+                        with camera.lock:
+                            if camera.error or camera.frame is None:
+                                return self.respond(503,'text/plain',b'Missing camera')
+                            if after is None:
+                                item=(camera.timestamp,camera.frame)
+                            else:
+                                item=next(((t,f) for t,f in camera.frames if epoch_offset+t>after[i]),None)
+                            if item is None:break
+                            stamp,frame=item
+                            if not 0<=time.monotonic()-stamp<.2:
+                                return self.respond(503,'text/plain',b'Camera queue overrun or stale frame')
+                            frames[role]=frame
+                            stamps.append(epoch_offset+stamp)
+                    if len(stamps)==3:break
+                    if time.monotonic()>=deadline:
+                        return self.respond(503,'text/plain',b'Timed out waiting for camera frames')
+                    time.sleep(.002)
                 if max(stamps) - min(stamps) > .15:
                     return self.respond(503, 'text/plain', b'Camera timestamp skew exceeds 150 ms')
                 output = io.BytesIO()

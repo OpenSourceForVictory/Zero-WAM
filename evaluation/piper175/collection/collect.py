@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 from urllib.request import urlopen
+from urllib.parse import urlencode
 
 import numpy as np
 from core import load_profile, decode_cameras, valid_message, build_index, vector_order
@@ -28,8 +29,9 @@ def write_json(path, value):
     tmp.replace(path)
 
 
-def camera(p):
-    with urlopen(p['camera_url']+'/observation.npz', timeout=2) as r:
+def camera(p, previous=None):
+    query='' if previous is None else '?'+urlencode({'after':json.dumps(previous.tolist())})
+    with urlopen(p['camera_url']+'/observation.npz'+query, timeout=2) as r:
         payload = r.read()
     return decode_cameras(payload, p, time.time())
 
@@ -39,7 +41,7 @@ def next_camera_frame(p, previous, stop):
     """Wait for all three asynchronous cameras; never write a duplicate frame."""
     deadline=time.monotonic()+p['max_age']
     while not stop.is_set():
-        images,stamps=camera(p)
+        images,stamps=camera(p,previous)
         if previous is None or np.all(stamps>previous):return images,stamps
         if np.any(stamps<previous):raise RuntimeError('Camera timestamp moved backwards')
         if time.monotonic()>=deadline:raise RuntimeError('Timed out waiting for new camera frames')

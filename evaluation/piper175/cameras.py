@@ -1,4 +1,5 @@
 """Three DC1 views, using V4L2 and Tk. No ROS or robot connection."""
+from collections import deque
 import argparse
 import base64
 from pathlib import Path
@@ -15,6 +16,7 @@ class Camera:
     def __init__(self, serial):
         self.serial = serial
         self.path = f'/dev/v4l/by-id/usb-Sonix_Technology_Co.__Ltd._Dabai_DC1_{serial}-video-index0'
+        self.frames = deque(maxlen=12)
         self.frame = None
         self.timestamp = 0
         self.error = None
@@ -37,7 +39,8 @@ class Camera:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             cap.set(cv2.CAP_PROP_FPS, 30)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            # Keep enough V4L2 buffers queued while MJPEG decoding runs.
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 4)
             while not self.stop.is_set():
                 ok, frame = cap.read()
                 if not ok:
@@ -46,6 +49,7 @@ class Camera:
                     frame = cv2.rotate(frame, cv2.ROTATE_180)
                 with self.lock:
                     self.frame, self.timestamp = frame, time.monotonic()
+                    self.frames.append((self.timestamp, frame))
                     self.error = None
         except Exception as exc:
             self.error = str(exc)
