@@ -141,7 +141,7 @@ class Console:
     def control_command(self,command):
         status=self.call(command)
         with self.lock:self.control={'connected':True,**status}
-        if status.get('error'):raise RuntimeError(status['error'])
+        if status.get('error') and command not in ('pause','stop'):raise RuntimeError(status['error'])
     def do_left(self,body):self.control_command('left')
     def do_right(self,body):self.control_command('right')
     def do_pause(self,body):self.control_command('pause')

@@ -218,3 +218,13 @@ def test_detail_and_image_enforce_dataset_boundaries(console,tmp_path):
     with pytest.raises(ValueError):console.hdf_path('test','../outside')
     (raw/'review.json').write_text(json.dumps({'accepted':True,'hdf5':str(tmp_path/'outside.hdf5')}))
     with pytest.raises(ValueError):console.hdf_path('test',raw.name)
+
+
+def test_latched_fault_does_not_block_successful_stop(console,monkeypatch):
+    monkeypatch.setattr(console,'call',lambda command:{'phase':'paused','error':'previous stale CAN'})
+    console.control_command('pause')
+    console.control_command('stop')
+    with pytest.raises(RuntimeError,match='previous stale CAN'):console.control_command('left')
+    def failed(command):raise RuntimeError('fresh command failure')
+    monkeypatch.setattr(console,'call',failed)
+    with pytest.raises(RuntimeError,match='fresh command failure'):console.control_command('pause')

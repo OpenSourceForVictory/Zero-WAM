@@ -49,3 +49,12 @@
 本地50项测试通过，新增单路丢帧后重新配对和缺失帧等待验证。真实30秒静止采集898帧，全部对齐、0拒绝、29.91597Hz、valid=true。原始诊断目录 acceptance/common_time_validation/episode_20261016_162107_133420。该软件配对使用主机收帧时间，不能视为硬件同步曝光。
 
 转换页结果展示：新增按所选任务显示的结果卡片（版本/动作维数/轨迹/帧数/FPS/输出目录及列表入口）；转换作业状态变化后自动刷新目录，显示进行中/失败。成功校验标记只在后台完成日志与目录匹配时显示，历史无日志结果仅标为已生成。仅更新HTML，无需重启服务。浏览器验证实际pika_aloha_10_16结果显示v2.1、28维、3条/878帧/30Hz及完整路径。
+
+
+## 故障后恢复（17:08）
+
+现场控制器曾锁存 Stale CAN joints feedback（约0.332秒）。退出会话调用 pause 虽已成功，网页仍因返回的历史 error 抛错，导致无法完成退出。修复 control_command：pause/stop 成功返回时允许带有历史故障；RPC命令本身失败仍报错。16项网页测试通过，包含历史故障不阻止成功停止的回归测试。
+
+本次先 switch.sh stop 退出旧控制器，再重启 piper-collection-web.service 和 pika-collection-sensors.service。只读检查双臂连续5组反馈及使能正常。通过网页 controller_start 重新建立控制器，状态 connected=true、execute=true、phase=paused、error=null，双臂保持当前位置，未自动选择控制臂或归零。日志 acceptance/dual_switch_20261016_170819。
+
+定位尚未恢复：streams 检查报 pika_left: missing/invalid message，官方定位节点持续输出 The data fluctuates too much。已要求现场将左手Tracker放回无遮挡位置并静止，再复核。控制服务恢复不等于遥操数据已就绪。独立 locator-check 因已有定位进程拒绝运行，空的 locator_20261016_170427 目录不代表测试通过。
