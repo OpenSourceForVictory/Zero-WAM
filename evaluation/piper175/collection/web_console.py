@@ -123,6 +123,8 @@ class Console:
         except (OSError,ValueError):current=None
         if current:
             if not current.get('execute'):raise ValueError('当前是只读预览，请先退出预览')
+            if current.get('error'):
+                raise RuntimeError('控制器仍处于故障状态，需停止旧控制器后重新启动：'+str(current['error']))
             self.log('控制服务已运行');return
         logfile=ROOT/'acceptance'/('web_controller_'+time.strftime('%Y%m%d_%H%M%S')+'.log')
         logfile.parent.mkdir(exist_ok=True)

@@ -228,3 +228,11 @@ def test_latched_fault_does_not_block_successful_stop(console,monkeypatch):
     def failed(command):raise RuntimeError('fresh command failure')
     monkeypatch.setattr(console,'call',failed)
     with pytest.raises(RuntimeError,match='fresh command failure'):console.control_command('pause')
+
+
+def test_start_reports_existing_controller_fault(console,monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(web.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=0))
+    monkeypatch.setattr(console,'call',lambda *a:{'execute':True,'error':'stale CAN'})
+    with pytest.raises(RuntimeError,match='stale CAN'):
+        console.do_controller_start({'ready':True})
