@@ -19,6 +19,15 @@ def verify(source,converted):
     for table in tables:
         for i,episode in enumerate(table['episode_index']):
             rows.setdefault(int(episode),[]).append({k:v[i] for k,v in table.items()})
+    if info['codebase_version']=='v2.1':
+        for name in ('episodes.jsonl','tasks.jsonl','episodes_stats.jsonl'):
+            assert (converted/'meta'/name).is_file(),name
+        episode_meta=[json.loads(x) for x in (converted/'meta/episodes.jsonl').read_text().splitlines()]
+        assert len(episode_meta)==info['total_episodes']
+        for episode in mapping['episodes']:
+            index=episode['episode_index']
+            assert (converted/f'data/chunk-000/episode_{index:06d}.parquet').is_file()
+            assert episode_meta[index]['length']==episode['length']
     count=0
     for ep in mapping['episodes']:
         samples=sorted(rows[ep['episode_index']],key=lambda r:r['frame_index'])
@@ -27,6 +36,9 @@ def verify(source,converted):
             expected_actions=reference.legacy_actions(f) if mapping['action_layout']=='legacy28' else f['action'][:]
             np.testing.assert_allclose(np.asarray([r['action'] for r in samples]),expected_actions,atol=1e-7)
             np.testing.assert_allclose(np.asarray([r['observation.state'] for r in samples]),f['observations/qpos'][:],atol=1e-7)
+            np.testing.assert_allclose([r['timestamp'] for r in samples],np.arange(len(samples))/info['fps'],atol=1e-7)
+            if info['codebase_version']=='v2.1':
+                assert [r['next.done'] for r in samples]==[False]*(len(samples)-1)+[True]
             count+=len(samples)
     assert count==info['total_frames'] and len(mapping['episodes'])==info['total_episodes']
     videos=list((converted/'videos').rglob('*.mp4'))
@@ -44,7 +56,7 @@ def verify(source,converted):
                 expected.extend({'episode_index':ep['episode_index'],'frame_index':i,'control_mode':json.loads(x)}
                                 for i,x in enumerate(f['control_mode'].asstr()))
     assert labels==expected
-    report={'valid':True,'episodes':len(rows),'frames':count,'camera_count':camera_count,
+    report={'valid':True,'version':info['codebase_version'],'episodes':len(rows),'frames':count,'camera_count':camera_count,
             'decoded_video_frames':video_counts,'switch_labels':len(labels),'fps':info['fps'],
             'action_layout':mapping['action_layout'],'action_shape':info['features']['action']['shape']}
     print(json.dumps(report,indent=2));return report

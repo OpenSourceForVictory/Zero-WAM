@@ -31,3 +31,12 @@
 网页真实 API 验证 session_start→start→save→exit 全部成功；保存至 ~/datasets/pika_piper/validation_30hz_20261016/hdf5/episode_0.hdf5（静止系统验证，勿作为任务训练示教）。此测试结束后无采集会话，双臂保持暂停跟随；持久采集配置仍为 pika_dual_demo / 30 Hz / 5000帧。
 本地46项测试通过，包括帧队列不重复消费、保留中间帧、多读者互不影响；前一轮浏览器15项快捷键测试包含失败条目Enter结束。
 旧10 Hz数据不要与新30 Hz数据混在同一批转换中；新任务采集宜另建任务名称。
+
+## LeRobot v2.1 与参考机对齐
+
+根据用户要求，转换默认改为 v2.1。2026-10-16 从参考机 /home/agilex/cobot_magic/collect_data 重新读取 convert_to_lerobot_v21.py 和 action_layouts.py；保存为 reference_174/convert_v21_20261016.py / action_layouts.py，仅把 FK 导入改为已有固定版离线 piper_fk。沿用参考机的 legacy28、14维 observation.state、每episode parquet/三路MP4和meta JSONL结构。包装器保留输入FPS/RGB核对、原始HDF5不改写、来源映射和控制切换标签。--version v3.0 可显式选择旧格式，默认v2.1。
+
+独立静止测试163帧转换并校验通过：codebase_version=v2.1、action=[28]、state逐值与HDF5一致、三路视频各163帧、163条控制模式标签，timestamp与next.done检查通过。输出 ~/piper_runtime/collection/acceptance/lerobot_v21_validation_20261016。
+转换脚本/网页已部署，默认v2.1立即生效；web_console.py中新的目录命名和目录列表版本显示需下次网页服务重启，未打断现场采集会话。
+
+现场另见控制器 fault: Invalid feedback（16:08:11），当时日志未保存原始读数。随后只读CAN连续5次显示右夹爪原始角度-70（即-0.07mm）、左夹爪46.1mm，两臂NORMAL/Error Code=0。现有read_arm要求夹爪>=0，该值足以触发全局故障；不能据此声称历史触发瞬间也是相同数值。未修改阈值、未恢复跟随或重启控制器。

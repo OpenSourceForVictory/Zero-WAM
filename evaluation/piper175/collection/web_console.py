@@ -318,7 +318,7 @@ class Console:
                     info=json.loads((output/'meta/info.json').read_text())
                     converted.append({'task':task.name,'name':output.name,'frames':info['total_frames'],
                                       'episodes':info['total_episodes'],'fps':info['fps'],'action_dim':info['features']['action']['shape'][0],
-                                      'path':str(output)})
+                                      'path':str(output),'version':info.get('codebase_version')})
                 except (OSError,ValueError,KeyError):continue
         disk=shutil.disk_usage(self.root)
         return {'tasks':tasks,'converted':converted,'disk':{'total':disk.total,'used':disk.used,'free':disk.free}}
@@ -383,13 +383,13 @@ class Console:
         if not prompt:raise ValueError('请填写转换使用的任务提示词')
         fps=body.get('fps',30)
         if type(fps) is not int or not 1<=fps<=30:raise ValueError('FPS 无效')
-        output=task/('lerobot28_'+time.strftime('%Y%m%d_%H%M%S'));logfile=task/(output.name+'.log')
+        output=task/('lerobot28_v21_'+time.strftime('%Y%m%d_%H%M%S'));logfile=task/(output.name+'.log')
         env=os.environ.copy();env['LEROBOT_PYTHON']=sys.executable
         with logfile.open('x') as log:
             subprocess.run(['bash',str(ROOT/'convert_lerobot.sh'),'--input_dir',str(task/'hdf5'),
-                '--output_dir',str(output),'--prompt',prompt,'--fps',str(fps),'--action-layout','legacy28'],env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
+                '--output_dir',str(output),'--prompt',prompt,'--fps',str(fps),'--action-layout','legacy28','--version','v2.1'],env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
             subprocess.run([sys.executable,str(ROOT/'verify_lerobot.py'),str(task/'hdf5'),str(output)],stdout=log,stderr=subprocess.STDOUT,check=True)
-        self.log('28 维转换与校验完成：'+str(output))
+        self.log('LeRobot v2.1 / 28 维转换与校验完成：'+str(output))
 
     def close(self):
         # Finish in-flight control/record operations before closing their resources.
