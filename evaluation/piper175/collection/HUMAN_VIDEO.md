@@ -26,9 +26,9 @@ MP4 为固定帧率，原始时间戳另存；不复制旧帧填充。保存时�
 
 新增相机接口 `/camera/high.npz?after=<上次源时间戳>`，只读现有顶部相机队列，不重新打开 USB，也不消耗其他读取方的帧。原三相机接口保持原行为。该接口独立于腕部相机和网页约 10 Hz 的 JPEG 预览。
 
-本次实现只修改开发工作区，并把文件放在目标机器 `~/piper_runtime/staged/human_video_20261016/`，没有覆盖运行代码或重启服务。必须等正在采集的工作结束再上线；新接口需要重启相机服务，网页需要重启采集控制台。不要在录制期间执行部署。
+2026-10-16 20:55 已在无采集会话、无录制、无转换的情况下部署，重启了相机服务与采集网页。旧代码备份位于 `~/piper_runtime/recovery_checks/human_video_deploy_20261016_205519/`；部署副本位于 `~/piper_runtime/staged/human_video_20261016/`。后续更新仍须等待采集和转换结束；不要在录制期间重启服务。
 
-待部署文件：`camera_web.py`、`collection/web_console.py`、`collection/web_console.html`、`collection/human_video.py`。
+部署文件：`camera_web.py`、`collection/web_console.py`、`collection/web_console.html`、`collection/human_video.py`。
 
 部署前先在网页保存/丢弃最后一条，退出采集会话并退出双臂控制；确认 `/api/status` 中 recording/session 为空、control 非 active/preparing。备份对应旧文件，核对 staging 的 base_sha256.json（防止覆盖后续修改），复制上述四个文件，再重启 `piper-cameras.service` 和 `piper-collection-web.service`。失败则恢复备份并重启这两个服务。无需修改 CAN、Pika、夹爪或现有数据。
 
@@ -36,4 +36,4 @@ MP4 为固定帧率，原始时间戳另存；不复制旧帧填充。保存时�
 
 开发机使用合成图像验证 MP4 编码、完整解码、相机失败保留、视频会话不调用机械臂 RPC、视频保存/下载路径/删除隔离；原采集回归测试和相机独立游标测试一起运行。Vue 模板编译及快捷键操作测试见 `tests/check_piper175_human_ui.cjs`。
 
-真实顶部相机录制验收留到部署后进行，当前机械臂采集期间不运行额外录像或做性能测试。
+部署后在仅顶部相机在线的情况下试录 90 帧，全部可解码，实际 29.90 Hz，质量校验通过。用户首条视频 145 帧、约 4.82 秒，145 帧全部可解码，保存成功。60 项 Python 测试及 Vue 模板/操作测试通过。原始采集数据与 HDF5 未修改、移动或删除。

@@ -25,3 +25,5 @@ benchmark_logs/
 .env
 /collection/acceptance/
 /collection/*.local.json
+
+/staged/
