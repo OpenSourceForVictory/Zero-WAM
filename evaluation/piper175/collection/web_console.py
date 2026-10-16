@@ -113,6 +113,11 @@ class Console:
             self.workers.append((group,worker));worker.start()
 
     def do_controller_start(self,body):
+        # The web entry must start acquisition, not assume yesterday's ROS nodes survived reboot.
+        sensor_start=subprocess.run(['systemctl','--user','start','pika-collection-sensors.service'],
+                                    capture_output=True,text=True,timeout=20)
+        if sensor_start.returncode:
+            raise RuntimeError('Sense/Tracker 采集服务启动失败：'+sensor_start.stderr[-1200:])
         try:
             current=self.call('status',2)
         except (OSError,ValueError):current=None

@@ -14,3 +14,5 @@
 先前已保存版本：collection_20261015_213731_1f22008。首次界面对齐时额外备份命令因远端没有 python 命令而失败，原先保存的版本仍在；后续命令使用 pika_export 环境的绝对 Python 路径。
 
 验证：43 项本地测试通过，含连续两条自动保存、会话锁、路径校验；浏览器模拟接口 14 项快捷键测试通过。实际网页三路实时画面可用；既有 128 帧、10 Hz 轨迹的元信息和三路图片读取成功。部署后 API 确认 30 Hz / 5000 帧。尚未开展 30 Hz 真机连续录制的吞吐与同步验收，本次未驱动机械臂。
+
+后续启动故障：重启后 CAN 为 DOWN，已恢复至 1 Mbps；用户授权后使用 recover_and_zero.sh --execute 完成双臂使能归零。之后控制服务启动正常，但切换左臂报 Sense/Tracker input missing or stale，查明传感器 ROS 节点未启动。启动 pika-collection-sensors.service 后 dual profile streams 检查全部 fresh。新增用户服务单元（仅传感器，无机械臂控制；不自动重启）并接入网页启动控制入口。单元安装至 ~/.config/systemd/user/ 后 daemon-reload。网页源码已部署，为保留当前控制会话未立即重启，自动启动逻辑在下次网页服务重启后生效。当前传感器服务已运行。

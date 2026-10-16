@@ -1,0 +1,10 @@
+[Unit]
+Description=Pika Sense and Tracker acquisition (no arm control)
+
+[Service]
+Type=simple
+WorkingDirectory=%h/piper_runtime/collection
+ExecStart=/bin/bash %h/piper_runtime/collection/run.sh --profile %h/piper_runtime/collection/profile_single_left.json sensors --execute
+KillSignal=SIGINT
+TimeoutStopSec=15
+Restart=no
