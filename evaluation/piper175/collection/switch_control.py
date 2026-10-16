@@ -44,8 +44,10 @@ def read_arm(arm, require_enabled):
         if getattr(flags,name): raise RuntimeError('Gripper fault: '+name)
     q=[math.radians(getattr(j.joint_state,f'joint_{i}')/1000) for i in range(1,7)]
     q.append(g.gripper_state.grippers_angle/1e6)
-    if not all(math.isfinite(x) for x in q) or not 0<=q[6]<=.08:
-        raise RuntimeError('Invalid feedback')
+    # Match the reference ROS driver: preserve measured gripper feedback,
+    # including small negative closed-position offsets; clamp only commands.
+    if not all(math.isfinite(x) for x in q):
+        raise RuntimeError(f'Non-finite arm feedback: {q!r}')
     return q
 
 

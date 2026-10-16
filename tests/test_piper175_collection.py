@@ -341,3 +341,21 @@ def test_camera_wait_rejects_frozen_or_regressing_frames(monkeypatch):
     monkeypatch.setattr(collect,'camera',lambda p,previous=None:({},np.zeros(3)))
     with pytest.raises(RuntimeError,match='backwards'):
         collect.next_camera_frame({'max_age':.1},previous,threading.Event())
+
+
+@pytest.mark.parametrize('grip',[-70,80100,0])
+def test_feedback_range_matches_reference_driver(monkeypatch,grip):
+    from types import SimpleNamespace as NS
+    import time
+    monkeypatch.syspath_prepend(str(ROOT))
+    from switch_control import read_arm
+    flags=NS(**{k:False for k in ('voltage_too_low','motor_overheating','driver_overcurrent','driver_overheating','sensor_status','driver_error_status')})
+    arm=NS(GetArmJointMsgs=lambda:NS(time_stamp=time.time(),joint_state=NS(**{f'joint_{i}':0 for i in range(1,7)})),
+           GetArmGripperMsgs=lambda:NS(time_stamp=time.time(),gripper_state=NS(grippers_angle=grip,foc_status=flags)),
+           GetArmStatus=lambda:NS(time_stamp=time.time(),arm_status=NS(arm_status=0,teach_status=0,err_code=0)))
+    assert read_arm(arm,False)[6]==grip/1e6
+    flags.sensor_status=True
+    with pytest.raises(RuntimeError,match='Gripper fault'):read_arm(arm,False)
+    flags.sensor_status=False
+    arm.GetArmGripperMsgs=lambda:NS(time_stamp=time.time(),gripper_state=NS(grippers_angle=float('nan'),foc_status=flags))
+    with pytest.raises(RuntimeError,match='Non-finite'):read_arm(arm,False)
