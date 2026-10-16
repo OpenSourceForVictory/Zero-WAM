@@ -69,5 +69,6 @@
     "left"
   ],
   "action_semantics": "Targets successfully sent by single-Sense dual gateway, after SDK integer conversion; inactive arm receives explicit hold targets",
-  "control_backend": "single_sense_switch"
+  "control_backend": "single_sense_switch",
+  "sense_closed_angle_rad": 0.05
 }

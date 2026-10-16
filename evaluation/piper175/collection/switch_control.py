@@ -18,6 +18,7 @@ import time
 import uuid
 
 from collect import channels, check, conflicting_processes
+from grip_mapping import gripper_target
 from core import load_profile
 from switch_model import Selection, encoded_target, sent_target
 
@@ -62,7 +63,7 @@ class Runtime:
         rclpy.init(); self.node=rclpy.create_node('pika_single_sense_dual_gateway')
         self.execute=execute; self.lock=threading.RLock(); self.selection=Selection()
         self.arms={}; self.targets={}; self.feedback={}; self.error=None
-        self.pose_at=0.; self.sense_at=0.; self.grip=None
+        self.pose_at=0.; self.sense_at=0.; self.grip=None; self.sense_closed_rad=0.0
         self.child=None; self.child_log=None; self.source_pub=None; self.dynamic=[]
         self.ik_at=0.; self.ready=False; self.running=True
         self.dest=ROOT/'acceptance'/time.strftime('dual_switch_%Y%m%d_%H%M%S'); self.dest.mkdir()
@@ -89,9 +90,10 @@ class Runtime:
         # documented endpoint saturation is accepted; other errors stay invalid.
         stamp=msg.header.stamp.sec+msg.header.stamp.nanosec/1e9
         saturated=msg.error and abs(msg.angle-1.67)<1e-5 and abs(msg.distance-.09670704)<1e-5
-        if (not msg.error or saturated) and math.isfinite(msg.distance) and -.02<=time.time()-stamp<.2:
+        if (not msg.error or saturated) and math.isfinite(msg.distance) and math.isfinite(msg.angle) and -.02<=time.time()-stamp<.2:
             with self.lock:
-                self.grip=min(.08,max(0.,msg.distance)); self.sense_at=time.monotonic()
+                self.grip=(gripper_target(msg.angle,self.sense_closed_rad) if self.sense_closed_rad else min(.08,max(0.,msg.distance)))
+                self.sense_at=time.monotonic()
 
     def js(self,q):
         msg=self.JointState(); msg.header.stamp=self.node.get_clock().now().to_msg()
@@ -282,7 +284,11 @@ def main():
         if any(Path(os.fsdecode(x)).name in ('piper_single_ctrl','gripper_only_probe.py') for x in argv[:3] if x):
             raise RuntimeError('Another CAN controller is running')
     if not check(p):raise RuntimeError('Preflight failed')
+    closed_rad=p.get('sense_closed_angle_rad',0.0)
+    gripper_target(0.,closed_rad)  # Validate configuration before opening CAN.
     runtime=Runtime(args.execute)
+    runtime.sense_closed_rad=closed_rad
+    runtime.event('sense_calibration',closed_angle_rad=closed_rad)
     def stop(*_):runtime.running=False
     signal.signal(signal.SIGINT,stop);signal.signal(signal.SIGTERM,stop)
     try:

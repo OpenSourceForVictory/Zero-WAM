@@ -369,3 +369,29 @@ def test_quality_explains_low_rate_without_relaxing_threshold(dataset):
     assert not quality['valid']
     assert quality['aligned']==quality['frames']
     assert any('实际帧率 10.00 Hz，低于 12.00 Hz' in x for x in quality['failure_reasons'])
+
+
+def test_measured_closed_endpoint_reaches_zero_and_keeps_full_travel(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    from grip_mapping import gripper_target
+    assert gripper_target(.05) > .0019
+    assert gripper_target(.05,.05)==0
+    assert gripper_target(0.,.05)==0
+    assert gripper_target(1.67,.05)==.08
+    values=[gripper_target(x,.05) for x in np.linspace(0,1.67,100)]
+    assert values==sorted(values)
+    with pytest.raises(ValueError):gripper_target(.05,float('nan'))
+
+
+def test_gateway_uses_measured_sense_endpoint_without_actuating(monkeypatch):
+    import threading,time
+    from types import SimpleNamespace as NS
+    monkeypatch.syspath_prepend(str(ROOT))
+    from switch_control import Runtime
+    r=Runtime.__new__(Runtime);r.lock=threading.RLock();r.sense_closed_rad=.05;r.grip=None;r.sense_at=0.
+    now=time.time();stamp=NS(sec=int(now),nanosec=int((now-int(now))*1e9))
+    msg=NS(header=NS(stamp=stamp),angle=.05,distance=.00197345,error=False)
+    r.sense(msg)
+    assert r.grip==0. and r.sense_at>0
+    msg.error=True;msg.angle=.2;msg.distance=.01;r.sense(msg)
+    assert r.grip==0.
