@@ -316,3 +316,28 @@ def test_disconnected_status_client_does_not_kill_control(monkeypatch):
         assert send_reply(server,{'phase':'active'}) is True
         assert json.loads(client.recv(1024))=={'phase':'active'}
     finally:server.close();client.close()
+
+
+def test_camera_wait_retries_duplicates_and_honors_stop(monkeypatch):
+    import threading
+    monkeypatch.syspath_prepend(str(ROOT))
+    import collect
+    stop=threading.Event();previous=np.array([1.,1.,1.])
+    frames=iter([previous, np.array([2.,1.,2.]), np.array([2.,2.,2.])])
+    monkeypatch.setattr(collect,'camera',lambda p:({'image':'new'},next(frames)))
+    result=collect.next_camera_frame({'max_age':.2},previous,stop)
+    assert (result[1]>previous).all()
+    stop.set();assert collect.next_camera_frame({'max_age':.2},previous,stop) is None
+
+
+def test_camera_wait_rejects_frozen_or_regressing_frames(monkeypatch):
+    import threading
+    monkeypatch.syspath_prepend(str(ROOT))
+    import collect
+    previous=np.ones(3)
+    monkeypatch.setattr(collect,'camera',lambda p:({},previous))
+    with pytest.raises(RuntimeError,match='Timed out'):
+        collect.next_camera_frame({'max_age':.01},previous,threading.Event())
+    monkeypatch.setattr(collect,'camera',lambda p:({},np.zeros(3)))
+    with pytest.raises(RuntimeError,match='backwards'):
+        collect.next_camera_frame({'max_age':.1},previous,threading.Event())

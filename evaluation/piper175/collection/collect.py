@@ -34,6 +34,19 @@ def camera(p):
     return decode_cameras(payload, p, time.time())
 
 
+
+def next_camera_frame(p, previous, stop):
+    """Wait for all three asynchronous cameras; never write a duplicate frame."""
+    deadline=time.monotonic()+p['max_age']
+    while not stop.is_set():
+        images,stamps=camera(p)
+        if previous is None or np.all(stamps>previous):return images,stamps
+        if np.any(stamps<previous):raise RuntimeError('Camera timestamp moved backwards')
+        if time.monotonic()>=deadline:raise RuntimeError('Timed out waiting for new camera frames')
+        stop.wait(.002)
+    return None
+
+
 def channels(p):
     result = []
     for arm,port in zip(('left','right'),p['can_usb_ports']):
@@ -221,16 +234,16 @@ def record(p,args):
             issues=obs.readiness(p)
             if issues: raise RuntimeError('; '.join(issues))
             if shutil.disk_usage(base).free < p['min_free_gb']*1e9: raise RuntimeError('Low disk space')
-            images,stamps=camera(p)
-            if last_stamps is not None and np.any(stamps<=last_stamps):
-                raise RuntimeError('Repeated/non-increasing camera frame timestamp')
+            fresh=next_camera_frame(p,last_stamps,stop)
+            if fresh is None:break
+            images,stamps=fresh
             name=f'frames/{n:06d}.npz'
             np.savez(episode/name,**images,timestamps=stamps)
             frames_file.write(json.dumps({'file':name,'source_times':stamps.tolist(),
                                           'receive_time':time.time()})+'\n')
             n+=1; last_stamps=stamps
             if n%int(max(1,p['hz']))==0: print(f'{n} frames, elapsed {time.monotonic()-start:.1f}s',flush=True)
-            next_tick+=1/p['hz']; stop.wait(max(0,next_tick-time.monotonic()))
+            next_tick=max(next_tick+1/p['hz'],time.monotonic()); stop.wait(max(0,next_tick-time.monotonic()))
         meta['status']='complete'
     except BaseException as e:
         if meta: meta.update(status='failed',error=repr(e))

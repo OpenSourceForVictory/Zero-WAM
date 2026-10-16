@@ -44,6 +44,8 @@ class Feed:
 
 def make_handler(feeds):
     page = Path(__file__).with_name('camera_web.html').read_bytes()
+    # A captured frame must have the same timestamp on every HTTP request.
+    epoch_offset = time.time() - time.monotonic()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -84,7 +86,7 @@ def make_handler(feeds):
                         if camera.error or camera.frame is None or not 0 <= age < .5:
                             return self.respond(503, 'text/plain', b'Missing or stale camera')
                         frames[role] = camera.frame.copy()
-                        stamps.append(time.time() - age)
+                        stamps.append(epoch_offset + camera.timestamp)
                 if max(stamps) - min(stamps) > .15:
                     return self.respond(503, 'text/plain', b'Camera timestamp skew exceeds 150 ms')
                 output = io.BytesIO()

@@ -16,3 +16,6 @@
 验证：43 项本地测试通过，含连续两条自动保存、会话锁、路径校验；浏览器模拟接口 14 项快捷键测试通过。实际网页三路实时画面可用；既有 128 帧、10 Hz 轨迹的元信息和三路图片读取成功。部署后 API 确认 30 Hz / 5000 帧。尚未开展 30 Hz 真机连续录制的吞吐与同步验收，本次未驱动机械臂。
 
 后续启动故障：重启后 CAN 为 DOWN，已恢复至 1 Mbps；用户授权后使用 recover_and_zero.sh --execute 完成双臂使能归零。之后控制服务启动正常，但切换左臂报 Sense/Tracker input missing or stale，查明传感器 ROS 节点未启动。启动 pika-collection-sensors.service 后 dual profile streams 检查全部 fresh。新增用户服务单元（仅传感器，无机械臂控制；不自动重启）并接入网页启动控制入口。单元安装至 ~/.config/systemd/user/ 后 daemon-reload。网页源码已部署，为保留当前控制会话未立即重启，自动启动逻辑在下次网页服务重启后生效。当前传感器服务已运行。
+
+30 Hz 故障修复：旧录制器把暂时重复的相机帧直接当作致命错误；失败状态的 Enter 按钮同时被禁用。现改为在 max_age 内等待三路新帧，停止请求可打断等待，冻结/时间倒退仍报错；相机 HTTP 接口使用固定 epoch_offset，避免同一帧在每次请求时产生换算抖动。失败条目支持 Enter 结束并保留原始文件，页面显示失败原因。已部署 collect.py、web_console.html、camera_web.py 并重启相机服务，未重启或移动机械臂控制。
+验证：45 项测试通过；浏览器 15 项模拟测试通过（新增失败条目 Enter 结束）。真机静止 5 秒录制 97 帧，97 帧对齐、无重复帧报错，但 achieved_camera_hz=19.2009，未通过 30 Hz 质量门槛。诊断数据位于 collection/acceptance/frame_wait_validation/episode_20261016_155423_102970，未纳入训练集。30 Hz 吞吐仍待优化，不能声明已达标。参考174使用 ROS 各路 deque 按时间戳消费帧；当前175为最新帧 HTTP 快照，取帧结构尚不一致。
