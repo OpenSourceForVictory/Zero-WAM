@@ -2,6 +2,9 @@
 from collections import deque
 import argparse
 import base64
+import fcntl
+import os
+import struct
 from pathlib import Path
 import threading
 import time
@@ -39,6 +42,13 @@ class Camera:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             cap.set(cv2.CAP_PROP_FPS, 30)
+            # Keep automatic exposure, but disallow lowering frame rate for exposure.
+            # V4L2_CID_EXPOSURE_AUTO_PRIORITY=0, VIDIOC_S_CTRL.
+            fd = os.open(self.path, os.O_RDWR)
+            try:
+                fcntl.ioctl(fd, 0xc008561c, struct.pack('Ii', 0x009a0903, 0))
+            finally:
+                os.close(fd)
             # Keep enough V4L2 buffers queued while MJPEG decoding runs.
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 4)
             while not self.stop.is_set():

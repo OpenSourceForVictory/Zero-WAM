@@ -268,7 +268,14 @@ class Console:
         destination=None
         try:
             if save:
-                if code:raise RuntimeError('录制质量检查失败，保留原始数据：'+str(episode))
+                if code:
+                    quality_path=episode/'quality.json'
+                    quality=json.loads(quality_path.read_text()) if quality_path.exists() else {}
+                    detail='；'.join(quality.get('failure_reasons',[]))
+                    if not detail:
+                        manifest=json.loads((episode/'manifest.json').read_text())
+                        detail=manifest.get('error','请查看该条 quality.json 和录制日志')
+                    raise RuntimeError('录制质量检查失败：'+detail+'；保留原始数据：'+str(episode))
                 from export_aloha import export
                 hdf=rec['raw'].parent/'hdf5'
                 indices=[int(p.stem.split('_')[-1]) for p in hdf.glob('episode_*.hdf5') if p.stem.split('_')[-1].isdigit()]

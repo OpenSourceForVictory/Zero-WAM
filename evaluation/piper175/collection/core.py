@@ -115,7 +115,13 @@ def build_index(episode):
               'duration_s':duration, 'achieved_camera_hz':rate,
               'max_camera_gap_s':float(gaps.max()) if len(gaps) else None,
               'rejections':rejected[:20], 'frame_errors':frame_errors[:20], 'capture_status':meta['status']}
-    report['valid'] = bool(meta['status']=='complete' and not frame_errors and len(aligned)>=10
-                           and len(aligned)==len(frames) and rate>=p['hz']*.8
-                           and len(gaps) and gaps.max()<=3/p['hz'])
+    reasons=[]
+    if meta['status']!='complete':reasons.append('录制中断：'+str(meta.get('error',meta['status'])))
+    if frame_errors:reasons.append('相机时间戳异常：'+frame_errors[0])
+    if len(aligned)<10:reasons.append('有效帧不足10帧')
+    if len(aligned)!=len(frames):reasons.append(f'数据未对齐：{len(frames)-len(aligned)}帧')
+    if rate<p['hz']*.8:reasons.append(f'实际帧率 {rate:.2f} Hz，低于 {p["hz"]*.8:.2f} Hz（目标 {p["hz"]} Hz）')
+    if not len(gaps) or gaps.max()>3/p['hz']:reasons.append('相机帧间隔超过允许值')
+    report['failure_reasons']=reasons
+    report['valid'] = not reasons
     return aligned, report

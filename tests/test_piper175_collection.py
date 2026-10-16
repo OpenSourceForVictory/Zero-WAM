@@ -359,3 +359,13 @@ def test_feedback_range_matches_reference_driver(monkeypatch,grip):
     flags.sensor_status=False
     arm.GetArmGripperMsgs=lambda:NS(time_stamp=time.time(),gripper_state=NS(grippers_angle=float('nan'),foc_status=flags))
     with pytest.raises(RuntimeError,match='Non-finite'):read_arm(arm,False)
+
+
+def test_quality_explains_low_rate_without_relaxing_threshold(dataset):
+    path=dataset/'manifest.json';meta=json.loads(path.read_text())
+    meta['profile']['hz']=15
+    path.write_text(json.dumps(meta))
+    _,quality=core.build_index(dataset)
+    assert not quality['valid']
+    assert quality['aligned']==quality['frames']
+    assert any('实际帧率 10.00 Hz，低于 12.00 Hz' in x for x in quality['failure_reasons'])

@@ -60,3 +60,12 @@
 定位尚未恢复：streams 检查报 pika_left: missing/invalid message，官方定位节点持续输出 The data fluctuates too much。已要求现场将左手Tracker放回无遮挡位置并静止，再复核。控制服务恢复不等于遥操数据已就绪。独立 locator-check 因已有定位进程拒绝运行，空的 locator_20261016_170427 目录不代表测试通过。
 
 17:09 后续：现场将左手Sense放回无遮挡位置后，重启定位采集服务重新求解；两次独立 streams 检查均 All required streams fresh。三相机在线约29.85–29.94Hz。控制器仍 connected=true、phase=paused、error=null，无录制会话；未自动启用跟随。此为恢复后的短时检查，不等同于长时遥操验收。
+
+
+## 录制低帧率修复（18:32）
+
+18:21/18:22/18:26三条完整录制因23.58/21.23/23.68Hz低于24Hz门槛未导出；帧全部对齐且无时间戳错误。独立取帧写盘测试曾达到30Hz，但完整测试期间右腕CC1C8100015源输出降至25Hz（约40ms间隔），另外两路30Hz。三相机 exposure_auto=3、exposure_auto_priority=1；将priority设0后源输出恢复30Hz。cameras.py启动时固化V4L2_CID_EXPOSURE_AUTO_PRIORITY=0，保留自动曝光和四缓冲区。未重装驱动。
+
+曾试验按最早未用帧配对，完整录制仍25Hz，未解决源降帧，已撤回；最终配对逻辑未变。修复后30秒完整静止采集898帧、898对齐、0拒绝、29.89167Hz、最大间隔76.12ms，valid=true。日志 acceptance/rate_exposure_fixed/episode_20261016_183222_330809。该静止诊断数据不用于任务训练。
+
+core质量报告增加failure_reasons，网页保存失败展示具体原因和阈值；30Hz目标、24Hz最低有效率及时间戳/对齐检查全部保持。53项本地测试通过。已有低帧率数据保留原始状态，不补帧、不冒充30Hz数据。运动时定位波动和CAN反馈偶发超时仍需独立处理。
