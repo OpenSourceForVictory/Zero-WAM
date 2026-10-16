@@ -58,3 +58,5 @@
 本次先 switch.sh stop 退出旧控制器，再重启 piper-collection-web.service 和 pika-collection-sensors.service。只读检查双臂连续5组反馈及使能正常。通过网页 controller_start 重新建立控制器，状态 connected=true、execute=true、phase=paused、error=null，双臂保持当前位置，未自动选择控制臂或归零。日志 acceptance/dual_switch_20261016_170819。
 
 定位尚未恢复：streams 检查报 pika_left: missing/invalid message，官方定位节点持续输出 The data fluctuates too much。已要求现场将左手Tracker放回无遮挡位置并静止，再复核。控制服务恢复不等于遥操数据已就绪。独立 locator-check 因已有定位进程拒绝运行，空的 locator_20261016_170427 目录不代表测试通过。
+
+17:09 后续：现场将左手Sense放回无遮挡位置后，重启定位采集服务重新求解；两次独立 streams 检查均 All required streams fresh。三相机在线约29.85–29.94Hz。控制器仍 connected=true、phase=paused、error=null，无录制会话；未自动启用跟随。此为恢复后的短时检查，不等同于长时遥操验收。
