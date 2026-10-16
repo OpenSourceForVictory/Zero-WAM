@@ -217,7 +217,7 @@ def record(p,args):
             old[sig]=signal.signal(sig,lambda *_:stop.set())
         print(f'Recording {episode}; Ctrl+C ends ONLY recording, not teleoperation.',flush=True)
         start=time.monotonic(); next_tick=start; n=0; last_stamps=None
-        while not stop.is_set() and (args.seconds<=0 or time.monotonic()-start<args.seconds):
+        while not stop.is_set() and (args.seconds<=0 or time.monotonic()-start<args.seconds) and (not getattr(args,'max_frames',0) or n<args.max_frames):
             issues=obs.readiness(p)
             if issues: raise RuntimeError('; '.join(issues))
             if shutil.disk_usage(base).free < p['min_free_gb']*1e9: raise RuntimeError('Low disk space')
@@ -301,7 +301,7 @@ def main():
     for name in ('sensors','teleop'):
         sub=subs.add_parser(name); sub.add_argument('--execute',action='store_true')
     sub=subs.add_parser('record'); sub.add_argument('--task',required=True)
-    sub.add_argument('--seconds',type=float,default=0); sub.add_argument('--output')
+    sub.add_argument('--seconds',type=float,default=0); sub.add_argument('--output'); sub.add_argument('--max-frames',type=int,default=0)
     for name in ('validate','export'):
         sub=subs.add_parser(name); sub.add_argument('episode')
     args=parser.parse_args(); p=load_profile(args.profile)
@@ -312,7 +312,9 @@ def main():
     if args.command in ('validate','export'):
         if args.command=='validate': return 0 if validate(args.episode) else 2
         export(args.episode); return 0
-    if args.command=='record': return 0 if record(p,args) else 2
+    if args.command=='record':
+        if args.max_frames<0:parser.error('--max-frames must be nonnegative')
+        return 0 if record(p,args) else 2
     if args.command=='streams':
         obs=Observer(p)
         try:

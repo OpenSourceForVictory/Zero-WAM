@@ -47,7 +47,10 @@ class Console:
     def __init__(self,data_root):
         self.root=Path(data_root).expanduser().resolve();self.root.mkdir(parents=True,exist_ok=True)
         self.logs=deque(maxlen=100);self.lock=threading.RLock();self.rpc_lock=threading.RLock();self.jobs={};self.controller=None
-        self.record=None;self.record_lock=None;self.last_result=None
+        self.record=None;self.record_lock=None;self.last_result=None;self.collection_session=None
+        self.config={"task":"pika_dual_demo","prompt":"","max_frames":5000,"fps":30}
+        config_file=self.root/".console_config.json"
+        if config_file.exists():self.config.update(json.loads(config_file.read_text()))
         self.control={'connected':False};self.closed=threading.Event();self.closing=False;self.workers=[]
         self.poller=threading.Thread(target=self.poll,daemon=True);self.poller.start()
 
@@ -76,11 +79,11 @@ class Console:
             if recording:recording['elapsed_s']=round(time.time()-rec['started_at'],1)
             return {'control':dict(self.control),'recording':recording,'jobs':dict(self.jobs),
                     'logs':list(self.logs),'last_result':self.last_result,'data_root':str(self.root),
-                    'conversion':'legacy28','fps':10}
+                    'conversion':'legacy28','fps':(self.collection_session or self.config)['fps'],'session':self.collection_session,'config':dict(self.config)}
 
     def submit(self,action,body):
         groups={'controller_start':'control','left':'control','right':'control','pause':'control','controller_stop':'control',
-                'start':'record','save':'record','discard':'record','exit':'record','delete':'record','delete_last':'record','convert':'convert'}
+                'session_start':'record','config_save':'record','start':'record','save':'record','discard':'record','exit':'record','delete':'record','delete_last':'record','convert':'convert'}
         if action not in groups:raise ValueError('未知操作')
         group=groups[action]
         with self.lock:
@@ -88,7 +91,7 @@ class Console:
             if self.jobs.get(group,{}).get('running'):raise ValueError('该操作正在处理，请稍候')
             if group in ('record','convert') and self.jobs.get('convert',{}).get('running'):
                 raise ValueError('正在转换，请完成后再操作录制数据')
-            if action=='convert' and (self.record or self.jobs.get('record',{}).get('running')):
+            if action=='convert' and (self.collection_session or self.record or self.jobs.get('record',{}).get('running')):
                 raise ValueError('请先结束录制再转换')
             if action=='controller_start' and body.get('ready') is not True:
                 raise ValueError('请先确认现场已准备好')
@@ -138,29 +141,72 @@ class Console:
     def do_right(self,body):self.control_command('right')
     def do_pause(self,body):self.control_command('pause')
     def do_controller_stop(self,body):
-        if self.record:raise ValueError('请先保存、删除本条或退出录制')
+        if self.collection_session or self.record:raise ValueError('请先退出采集会话')
         self.control_command('stop')
         if self.controller:self.controller.wait(timeout=12)
+
+    def validate_config(self,body):
+        task=body.get('task',self.config['task']);task_path(self.root,task)
+        frames=body.get('max_frames',self.config['max_frames']);fps=body.get('fps',self.config['fps'])
+        if type(frames) is not int or not 1<=frames<=1000000:raise ValueError('最大帧数须为 1–1000000 的整数')
+        if type(fps) is not int or not 1<=fps<=30:raise ValueError('当前三相机采集帧率须为 1–30 Hz')
+        prompt=body.get('prompt',self.config.get('prompt',''))
+        if not isinstance(prompt,str) or len(prompt)>2000:raise ValueError('任务描述须少于 2000 字')
+        return dict(task=task,prompt=prompt.strip(),max_frames=frames,fps=fps)
+
+    def do_config_save(self,body):
+        if self.collection_session or self.record:raise ValueError('请先退出采集会话再修改配置')
+        config=self.validate_config(body)
+        path=self.root/'.console_config.json';temporary=path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(config,ensure_ascii=False,indent=2));temporary.replace(path)
+        with self.lock:self.config=config
+        self.log('采集配置已保存')
+
+    def acquire_record_lock(self):
+        if self.record_lock:return
+        lock=(ROOT/'.session.lock').open('a')
+        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except OSError:lock.close();raise ValueError('其他采集会话正在使用录制入口')
+        self.record_lock=lock
+
+    def do_session_start(self,body):
+        if self.collection_session or self.record:raise ValueError('采集会话已启动')
+        config=self.validate_config(body)
+        status=self.call('status',2)
+        if not status.get('execute') or status.get('error') or status.get('phase') not in ('active','paused'):
+            raise ValueError('请先启动双臂控制并检查数据状态')
+        self.acquire_record_lock()
+        try:
+            task=task_path(self.root,config['task']);task.mkdir(parents=True,exist_ok=True)
+            profile=json.loads((ROOT/'profile_single_sense_dual.json').read_text());profile['hz']=config['fps']
+            profile_path=task/'.capture_profile.json';profile_path.write_text(json.dumps(profile,indent=2))
+            check=subprocess.run(['bash',str(ROOT/'run.sh'),'--profile',str(profile_path),'streams'],capture_output=True,text=True,timeout=15)
+            if check.returncode:raise RuntimeError('采集数据未就绪：'+(check.stdout+check.stderr)[-1500:])
+            with self.lock:self.collection_session={**config,'id':secrets.token_hex(8),'profile':str(profile_path)}
+            self.log('交互采集会话已启动，等待 Enter 开始录制')
+        except Exception:self.release_record_lock();raise
 
     def do_start(self,body):
         if self.record:raise ValueError('已有一条正在录制或等待处理')
         control=self.call('status',2)
         if not control.get('execute') or control.get('error') or control.get('phase') not in ('active','paused'):
             raise ValueError('控制服务未就绪；先启动控制并检查状态')
+        if self.collection_session:body={**body,**self.collection_session}
         name=body.get('task','');task=task_path(self.root,name);prompt=body.get('prompt','').strip()
+        if self.collection_session and not prompt:prompt=name
         if not prompt or len(prompt)>2000:raise ValueError('请填写任务提示词（不超过 2000 字）')
-        lock=(ROOT/'.session.lock').open('a')
-        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except OSError:lock.close();raise ValueError('其他采集会话正在使用录制入口')
-        self.record_lock=lock
+        self.acquire_record_lock()
         try:
             raw=task/'raw';raw.mkdir(parents=True,exist_ok=True);(task/'hdf5').mkdir(exist_ok=True)
             ident=secrets.token_hex(8);logfile=task/f'record_{ident}.log'
             rec={'id':ident,'task':name,'prompt':prompt,'phase':'starting','frames':0,'started_at':time.time(),
                  'before':set(raw.glob('episode_*')),'raw':raw,'episode':None,'logfile':logfile}
+            profile=self.collection_session['profile'] if self.collection_session else str(ROOT/'profile_single_sense_dual.json')
+            command=['bash',str(ROOT/'run.sh'),'--profile',profile,'record','--task',prompt,'--output',str(raw)]
+            rec['auto_save']=bool(self.collection_session)
+            if self.collection_session:command+=['--max-frames',str(body['max_frames'])]
             with logfile.open('x') as log:
-                rec['process']=subprocess.Popen(['bash',str(ROOT/'run.sh'),'--profile',str(ROOT/'profile_single_sense_dual.json'),
-                    'record','--task',prompt,'--output',str(raw)],stdout=log,stderr=subprocess.STDOUT)
+                rec['process']=subprocess.Popen(command,stdout=log,stderr=subprocess.STDOUT)
             with self.lock:self.record=rec
             threading.Thread(target=self.monitor_record,args=(rec,),daemon=True).start()
             deadline=time.monotonic()+15
@@ -170,7 +216,7 @@ class Console:
                 time.sleep(.1)
             raise RuntimeError('录制就绪超时；请删除本条或退出录制后检查日志')
         except Exception:
-            if self.record is None:self.release_record_lock()
+            if self.record is None and not self.collection_session:self.release_record_lock()
             raise
 
     def monitor_record(self,rec):
@@ -185,9 +231,14 @@ class Console:
                 if len(paths)==1:rec['episode']=str(next(iter(paths)))
                 code=rec['process'].poll()
                 if code is not None:
-                    if rec['phase'] not in ('saving','discarding'):
-                        rec['phase']='failed';rec['error']=text[-1600:]
-                    return
+                    if rec['phase'] in ('saving','discarding'):return
+                    if code==0 and rec.get('auto_save'):
+                        if not self.jobs.get('record',{}).get('running'):
+                            try:self.submit('save',{'recording_id':rec['id']})
+                            except ValueError:pass
+                            else:self.log('达到最大帧数，正在自动保存');return
+                    else:
+                        rec['phase']='failed';rec['error']=text[-1600:];return
             self.closed.wait(.5)
 
     def release_record_lock(self):
@@ -204,7 +255,8 @@ class Console:
         paths=set(rec['raw'].glob('episode_*'))-rec['before']
         if len(paths)!=1:
             with self.lock:self.record=None
-            self.release_record_lock();raise RuntimeError('没有生成唯一数据条目，请检查 '+str(rec['logfile']))
+            if not self.collection_session:self.release_record_lock()
+            raise RuntimeError('没有生成唯一数据条目，请检查 '+str(rec['logfile']))
         episode=paths.pop();review={'accepted':False,'reviewed_at':time.time(),'reason':'discarded' if not save else 'validation_pending'}
         destination=None
         try:
@@ -222,7 +274,7 @@ class Console:
         finally:
             if not (episode/'review.json').exists():(episode/'review.json').write_text(json.dumps(review))
             with self.lock:self.record=None
-            self.release_record_lock()
+            if not self.collection_session:self.release_record_lock()
 
     def do_save(self,body):self.finish(True)
     def do_discard(self,body):self.finish(False)
@@ -230,6 +282,8 @@ class Console:
         # Pause first; recording continues through the hold transition.
         if (ROOT/'.switch.sock').exists():self.control_command('pause')
         self.finish(False)
+        with self.lock:self.collection_session=None
+        self.release_record_lock()
         self.log('已退出录制并暂停跟随；已保存条目不受影响')
 
     def episodes(self,name):
@@ -244,6 +298,57 @@ class Console:
             except (OSError,ValueError):continue
         return items
 
+    def catalog(self):
+        tasks=[];converted=[]
+        for task in sorted(self.root.iterdir()):
+            if not task.is_dir() or task.name.startswith('.'):continue
+            try:task_path(self.root,task.name)
+            except ValueError:continue
+            rows=self.episodes(task.name);saved=[x for x in rows if x['status']=='saved']
+            tasks.append({'name':task.name,'episodes':len(saved),'frames':sum(x['frames'] or 0 for x in saved),
+                          'bytes':sum(p.stat().st_size for p in (task/'hdf5').glob('episode_*.hdf5'))})
+            for output in sorted(task.glob('lerobot28_*')):
+                if not output.is_dir():continue
+                try:
+                    info=json.loads((output/'meta/info.json').read_text())
+                    converted.append({'task':task.name,'name':output.name,'frames':info['total_frames'],
+                                      'episodes':info['total_episodes'],'fps':info['fps'],'action_dim':info['features']['action']['shape'][0],
+                                      'path':str(output)})
+                except (OSError,ValueError,KeyError):continue
+        disk=shutil.disk_usage(self.root)
+        return {'tasks':tasks,'converted':converted,'disk':{'total':disk.total,'used':disk.used,'free':disk.free}}
+
+    def hdf_path(self,task_name,episode_name):
+        task=task_path(self.root,task_name)
+        if not re.fullmatch(r'episode_\d{8}_\d{6}_\d+',episode_name):raise ValueError('条目无效')
+        episode=(task/'raw'/episode_name).resolve()
+        if episode.parent!=(task/'raw').resolve():raise ValueError('条目路径无效')
+        review=json.loads((episode/'review.json').read_text())
+        if not review.get('accepted') or not review.get('hdf5'):raise ValueError('此条尚未保存为 HDF5')
+        path=Path(review['hdf5']).resolve()
+        if path.parent!=(task/'hdf5').resolve() or not path.is_file():raise ValueError('HDF5 路径无效')
+        return path
+
+    def episode_detail(self,task_name,episode_name):
+        import h5py
+        path=self.hdf_path(task_name,episode_name)
+        with h5py.File(path,'r') as f:
+            count=len(f['action']);step=max(1,(count+399)//400)
+            return {'frames':count,'fps':float(f.attrs['fps']),'qpos_shape':list(f['observations/qpos'].shape),
+                    'action_shape':list(f['action'].shape),'cameras':list(f['observations/images']),
+                    'qpos':f['observations/qpos'][::step].tolist(),'step':step,'path':str(path)}
+
+    def episode_image(self,task_name,episode_name,camera,frame):
+        import h5py,io
+        from PIL import Image
+        if camera not in ('cam_high','cam_left_wrist','cam_right_wrist'):raise ValueError('相机无效')
+        with h5py.File(self.hdf_path(task_name,episode_name),'r') as f:
+            data=f['observations/images/'+camera]
+            if not 0<=frame<len(data):raise ValueError('帧号超出范围')
+            image=data[frame]
+        stream=io.BytesIO();Image.fromarray(image).save(stream,format='JPEG',quality=85)
+        return stream.getvalue()
+
     def do_delete_last(self,body):
         saved=[row for row in self.episodes(body.get('task','')) if row['status']=='saved']
         if not saved:raise ValueError('没有已保存的轨迹可删除')
@@ -253,6 +358,7 @@ class Console:
 
     def do_delete(self,body):
         if self.record:raise ValueError('请先结束当前录制')
+        if self.collection_session and body.get('task')!=self.collection_session['task']:raise ValueError('采集会话期间只能操作当前任务')
         task=task_path(self.root,body.get('task',''));name=body.get('episode','')
         if not re.fullmatch(r'episode_\d{8}_\d{6}_\d+',name):raise ValueError('数据条目无效')
         episode=(task/'raw'/name).resolve()
@@ -270,11 +376,13 @@ class Console:
         if not list((task/'hdf5').glob('episode_*.hdf5')):raise ValueError('没有已保存的 HDF5 数据')
         prompt=body.get('prompt','').strip()
         if not prompt:raise ValueError('请填写转换使用的任务提示词')
+        fps=body.get('fps',30)
+        if type(fps) is not int or not 1<=fps<=30:raise ValueError('FPS 无效')
         output=task/('lerobot28_'+time.strftime('%Y%m%d_%H%M%S'));logfile=task/(output.name+'.log')
         env=os.environ.copy();env['LEROBOT_PYTHON']=sys.executable
         with logfile.open('x') as log:
             subprocess.run(['bash',str(ROOT/'convert_lerobot.sh'),'--input_dir',str(task/'hdf5'),
-                '--output_dir',str(output),'--prompt',prompt,'--action-layout','legacy28'],env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
+                '--output_dir',str(output),'--prompt',prompt,'--fps',str(fps),'--action-layout','legacy28'],env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
             subprocess.run([sys.executable,str(ROOT/'verify_lerobot.py'),str(task/'hdf5'),str(output)],stdout=log,stderr=subprocess.STDOUT,check=True)
         self.log('28 维转换与校验完成：'+str(output))
 
@@ -306,7 +414,15 @@ def make_handler(console):
             path=urlsplit(self.path).path
             try:
                 if path=='/':return self.send(200,(ROOT/'web_console.html').read_text().replace('__CSRF_TOKEN__',token).encode(),'text/html; charset=utf-8')
+                if path in ('/static/vue.global.prod.js','/static/tailwind.min.css'):
+                    return self.send(200,(ROOT/path.lstrip('/')).read_bytes(),'text/javascript' if path.endswith('.js') else 'text/css')
                 if path=='/api/status':return self.send(200,console.snapshot())
+                if path=='/api/catalog':return self.send(200,console.catalog())
+                if path in ('/api/episode/detail','/api/episode/image'):
+                    query=parse_qs(urlsplit(self.path).query)
+                    task=query.get('task',[''])[0];episode=query.get('episode',[''])[0]
+                    if path.endswith('detail'):return self.send(200,console.episode_detail(task,episode))
+                    return self.send(200,console.episode_image(task,episode,query.get('camera',[''])[0],int(query.get('frame',['0'])[0])),'image/jpeg')
                 if path=='/api/tasks':return self.send(200,[p.name for p in console.root.iterdir() if p.is_dir() and not p.name.startswith('.')])
                 if path=='/api/episodes':return self.send(200,console.episodes(parse_qs(urlsplit(self.path).query).get('task',[''])[0]))
                 if path.startswith('/camera/') and path.split('/')[-1] in CAMERAS:

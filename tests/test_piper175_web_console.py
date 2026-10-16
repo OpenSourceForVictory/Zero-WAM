@@ -95,7 +95,7 @@ def test_http_get_does_not_control_and_post_requires_token(console,monkeypatch):
     base=f'http://127.0.0.1:{server.server_port}'
     try:
         page=urllib.request.urlopen(base).read().decode()
-        assert '开始本条' in page and not called
+        assert '启动交互采集' in page and not called
         request=urllib.request.Request(base+'/api/action',data=b'{"action":"left"}',headers={'Content-Type':'application/json'})
         with pytest.raises(urllib.error.HTTPError) as error:urllib.request.urlopen(request)
         assert error.value.code==403 and not called
@@ -154,3 +154,67 @@ def test_delete_last_rejects_stale_list(console,monkeypatch):
     assert not calls
     console.do_delete_last({'task':'test','episode':'new'})
     assert calls==['new']
+
+
+def test_session_configuration_and_failed_preflight_release_lock(console,monkeypatch,tmp_path):
+    from types import SimpleNamespace
+    monkeypatch.setattr(web,'ROOT',tmp_path)
+    (tmp_path/'profile_single_sense_dual.json').write_text('{"hz":10}')
+    monkeypatch.setattr(console,'call',lambda *a:{'execute':True,'phase':'paused'})
+    monkeypatch.setattr(web.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=1,stdout='missing camera',stderr=''))
+    with pytest.raises(RuntimeError,match='missing camera'):
+        console.do_session_start({'task':'test','fps':20,'max_frames':50})
+    assert console.record_lock is None and console.collection_session is None
+    monkeypatch.setattr(web.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=0))
+    console.do_session_start({'task':'test','fps':20,'max_frames':50})
+    assert console.collection_session['max_frames']==50
+    assert json.loads(Path(console.collection_session['profile']).read_text())['hz']==20
+    with pytest.raises(ValueError):console.do_config_save({'task':'other'})
+    with pytest.raises(ValueError):console.submit('convert',{})
+    with pytest.raises(ValueError):console.do_controller_stop({})
+    console.do_exit({})
+    assert console.record_lock is None and console.collection_session is None
+
+
+def test_auto_save_keeps_session_for_next_take(console,monkeypatch,tmp_path):
+    import export_aloha
+    monkeypatch.setattr(web,'ROOT',tmp_path)
+    console.collection_session={'id':'session','task':'test','prompt':'','profile':'test.json','fps':10,'max_frames':5}
+    monkeypatch.setattr(console,'call',lambda *a:{'execute':True,'phase':'paused'})
+    monkeypatch.setattr(export_aloha,'export',lambda episode,dest:dest.write_bytes(b'exported'))
+    commands=[]
+    class Process:
+        def __init__(self,args,stdout,stderr):
+            commands.append(args);raw=Path(args[args.index('--output')+1])
+            (raw/f'episode_20261016_120000_{len(commands)}').mkdir()
+            stdout.write('Recording test\n5 frames, elapsed 0.5s\n');stdout.flush()
+        def poll(self):return 0
+        def wait(self,timeout):return 0
+    monkeypatch.setattr(web.subprocess,'Popen',Process)
+    for i in range(2):
+        console.submit('start',{})
+        deadline=time.monotonic()+4
+        while time.monotonic()<deadline:
+            if console.last_result and console.last_result['hdf5'].endswith(f'episode_{i}.hdf5') and not console.jobs['record']['running']:break
+            time.sleep(.05)
+        else:pytest.fail(str(console.snapshot()))
+        assert console.record is None and console.record_lock is not None
+    assert all(c[c.index('--max-frames')+1]=='5' for c in commands)
+    console.do_exit({});assert console.record_lock is None
+
+
+def test_detail_and_image_enforce_dataset_boundaries(console,tmp_path):
+    import numpy as np
+    import h5py
+    task=console.root/'test';raw=task/'raw/episode_20261016_120000_1';raw.mkdir(parents=True)
+    hdf=task/'hdf5/episode_0.hdf5';hdf.parent.mkdir()
+    with h5py.File(hdf,'w') as f:
+        f.attrs['fps']=10;f['action']=np.zeros((3,14));f['observations/qpos']=np.zeros((3,14))
+        f['observations/images/cam_high']=np.zeros((3,4,4,3),dtype=np.uint8)
+    (raw/'review.json').write_text(json.dumps({'accepted':True,'hdf5':str(hdf)}))
+    assert console.episode_detail('test',raw.name)['frames']==3
+    assert console.episode_image('test',raw.name,'cam_high',0).startswith(b'\xff\xd8')
+    with pytest.raises(ValueError):console.episode_image('test',raw.name,'cam_high',3)
+    with pytest.raises(ValueError):console.hdf_path('test','../outside')
+    (raw/'review.json').write_text(json.dumps({'accepted':True,'hdf5':str(tmp_path/'outside.hdf5')}))
+    with pytest.raises(ValueError):console.hdf_path('test',raw.name)
