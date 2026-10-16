@@ -42,6 +42,16 @@ class Feed:
             return self.jpeg, age
 
 
+def pair_frames(queues, after):
+    """Reference Aloha rule: align each queue to the minimum latest timestamp."""
+    fresh=[[item for item in queue if item[0]>cursor] for queue,cursor in zip(queues,after)]
+    if any(not queue for queue in fresh):return None
+    frame_time=min(queue[-1][0] for queue in fresh)
+    selected=[next(item for item in queue if item[0]>=frame_time) for queue in fresh]
+    if max(item[0] for item in selected)-min(item[0] for item in selected)>.1:return None
+    return selected
+
+
 def make_handler(feeds):
     page = Path(__file__).with_name('camera_web.html').read_bytes()
     # A captured frame must have the same timestamp on every HTTP request.
@@ -94,23 +104,21 @@ def make_handler(feeds):
                     return self.respond(400,'text/plain',b'Invalid frame cursors')
                 deadline=time.monotonic()+.2
                 while True:
-                    frames, stamps = {}, []
-                    for i,(role,serial) in enumerate(roles.items()):
+                    queues=[]
+                    for role,serial in roles.items():
                         camera=feeds[serial].camera
                         with camera.lock:
                             if camera.error or camera.frame is None:
                                 return self.respond(503,'text/plain',b'Missing camera')
-                            if after is None:
-                                item=(camera.timestamp,camera.frame)
-                            else:
-                                item=next(((t,f) for t,f in camera.frames if epoch_offset+t>after[i]),None)
-                            if item is None:break
-                            stamp,frame=item
-                            if not 0<=time.monotonic()-stamp<.2:
-                                return self.respond(503,'text/plain',b'Camera queue overrun or stale frame')
-                            frames[role]=frame
-                            stamps.append(epoch_offset+stamp)
-                    if len(stamps)==3:break
+                            queues.append([(epoch_offset+t,f) for t,f in camera.frames])
+                    selected=([queue[-1] for queue in queues] if after is None and all(queues)
+                              else pair_frames(queues,after) if after is not None else None)
+                    if selected is not None:
+                        stamps=[item[0] for item in selected]
+                        if not all(-.02<=time.time()-stamp<.2 for stamp in stamps):
+                            return self.respond(503,'text/plain',b'Camera queue overrun or stale frame')
+                        frames={role:item[1] for role,item in zip(roles,selected)}
+                        break
                     if time.monotonic()>=deadline:
                         return self.respond(503,'text/plain',b'Timed out waiting for camera frames')
                     time.sleep(.002)

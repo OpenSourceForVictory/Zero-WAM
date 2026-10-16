@@ -15,7 +15,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'evaluation/piper175')
 import camera_web
 
 
-def test_cursor_retains_intermediate_frames_and_does_not_consume_other_readers():
+def test_cursor_pairs_at_common_time_and_does_not_consume_other_readers():
     now=time.monotonic();feeds={}
     for serial in camera_web.SERIALS:
         frames=deque([(now-.04,np.full((2,2,3),1,np.uint8)),(now-.02,np.full((2,2,3),2,np.uint8)),(now,np.full((2,2,3),3,np.uint8))])
@@ -30,7 +30,16 @@ def test_cursor_retains_intermediate_frames_and_does_not_consume_other_readers()
         latest=read();assert (latest['high']==3).all()
         query='?'+urlencode({'after':json.dumps((latest['timestamps']-.03).tolist())})
         first=read(query);second=read(query)
-        assert (first['high']==2).all()
+        assert (first['high']==3).all()
         assert np.array_equal(first['timestamps'],second['timestamps'])
         assert len(feeds[camera_web.SERIALS[0]].camera.frames)==3
     finally:server.shutdown();server.server_close();thread.join()
+
+
+def test_common_time_recovers_pairing_after_one_camera_drops_frames():
+    queues=[[(t,str(t)) for t in times] for times in
+            ([1.,1.03,1.06,1.09,1.12,1.15], [1.,1.15], [1.01,1.04,1.07,1.10,1.13,1.16])]
+    pair=camera_web.pair_frames(queues,[1.,1.,1.01])
+    assert [x[0] for x in pair]==[1.15,1.15,1.16]
+    assert camera_web.pair_frames(queues,[1.15,1.15,1.16]) is None
+    assert camera_web.pair_frames([[(1.,None)],[(1.3,None)],[(1.4,None)]],[0,0,0]) is None
