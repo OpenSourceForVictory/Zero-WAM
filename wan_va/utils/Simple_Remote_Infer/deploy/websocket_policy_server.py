@@ -1,5 +1,7 @@
 import asyncio
 import http
+import json
+import uuid
 import logging
 import time
 import traceback
@@ -71,7 +73,12 @@ class WebsocketPolicyServer:
         while True:
             try:
                 start_time = time.monotonic()
-                obs = unpackb(await websocket.recv())
+                raw_request = await websocket.recv()
+                received_at = time.monotonic()
+                obs = unpackb(raw_request)
+                unpacked_at = time.monotonic()
+                request_id = obs.pop('_rpc_request_id', None) or uuid.uuid4().hex
+                kind = 'reset' if obs.get('reset') else ('kv' if obs.get('compute_kv_cache') else 'predict')
 
                 if needs_reset and not obs.get("reset"):
                     raise ValueError("A new inference session must begin with reset")
@@ -82,14 +89,32 @@ class WebsocketPolicyServer:
 
                 action["server_timing"] = {
                     "infer_ms": infer_time * 1000,
+                    "request_id": request_id,
+                    "request_unpack_ms": (unpacked_at - received_at) * 1000,
                 }
                 if prev_total_time is not None:
                     # We can only record the last total time since we also want to include the send time.
                     action["server_timing"][
                         "prev_total_ms"] = prev_total_time * 1000
 
-                await websocket.send(packer.pack(action))
-                prev_total_time = time.monotonic() - start_time
+                pack_started = time.monotonic()
+                response = packer.pack(action)
+                send_started = time.monotonic()
+                await websocket.send(response)
+                send_finished = time.monotonic()
+                prev_total_time = send_finished - start_time
+                # Log after send: measuring actual response packing cannot be
+                # embedded in that same response without repacking it.
+                logger.info('RPC_TIMING %s', json.dumps({
+                    'request_id': request_id, 'kind': kind,
+                    'request_bytes': len(raw_request), 'response_bytes': len(response),
+                    'recv_wait_s': received_at - start_time,
+                    'request_unpack_s': unpacked_at - received_at,
+                    'policy_s': infer_time,
+                    'response_pack_s': send_started - pack_started,
+                    'server_received_to_send_s': send_started - received_at,
+                    'send_call_s': send_finished - send_started,
+                }))
 
             except websockets.ConnectionClosed:
                 logger.info(

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -54,3 +55,30 @@ def test_rpc_records_metadata_and_preserves_stop(monkeypatch, tmp_path):
     monkeypatch.setattr(c, '_stopped', lambda: True)
     with pytest.raises(StopRequested):
         c.infer({'obs': {}})
+
+
+@pytest.mark.parametrize('payload,kind', [({'obs': {}}, 'predict'),
+                                        ({'compute_kv_cache': True}, 'kv'),
+                                        ({'reset': True}, 'reset')])
+@pytest.mark.parametrize('timing,expected', [(None, None),
+    ({'infer_ms': 1200, 'prev_total_ms': 90000}, 1.2),
+    ({'infer_ms': 'bad'}, None), ({'infer_ms': -1}, None)])
+def test_server_timing_persisted_without_using_previous_wait(monkeypatch, tmp_path, payload, kind, timing, expected):
+    import va_client
+    c = va_client.WebsocketClientPolicy()
+    reply = {} if timing is None else {'server_timing': timing}
+    response = c._packer.pack(reply)
+    c._ws = SimpleNamespace(send=lambda x: None, recv=lambda **kw: response)
+    monkeypatch.setattr(c, '_stopped', lambda: False)
+    ticks = iter([0.0, 0.1, 2.0, 2.1])
+    monkeypatch.setattr(va_client.time, 'perf_counter', lambda: next(ticks))
+    c.diagnostics_path = tmp_path/'rpc.jsonl'
+    assert c.infer(payload) == reply
+    row = json.loads(c.diagnostics_path.read_text())
+    assert row['kind'] == kind
+    assert row['server_timing'] == timing
+    assert row['server_policy_s'] == expected
+    if expected is None:
+        assert row['rpc_outside_policy_s'] is None
+    else:
+        assert row['rpc_outside_policy_s'] == pytest.approx(0.9)

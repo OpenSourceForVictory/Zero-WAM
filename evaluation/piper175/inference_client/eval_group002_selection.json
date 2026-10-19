@@ -1,0 +1,13 @@
+{
+  "group": 2,
+  "split": "eval",
+  "sample_ids": [
+    "piperpika_000002",
+    "piperpika_000003"
+  ],
+  "latent_path": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_16_zerowam_joint_v2/human_latents/run_eval/group_002.pth",
+  "source_human_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_16/human_video/episode_20261016_210146_354555430/video.mp4",
+  "prompt": "pick object to the container",
+  "observed_task": "Move the green object at front left to the purple plate at back left",
+  "reference_robot_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_16_zerowam_joint_v2/eval/piperpika/videos/chunk-000/observation.images.cam_high/episode_000002.mp4"
+}

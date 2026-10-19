@@ -13,8 +13,11 @@ import json
 import os
 import shutil
 import signal
+import subprocess
+import sys
 import time
 from stop_request import StopRequested
+from action_contract import validate_reset, execution_tensor, gripper_targets
 import traceback
 from dataclasses import dataclass
 from datetime import datetime
@@ -285,10 +288,10 @@ def model_joint_action_to_piper(action_14: np.ndarray):
 
 
 def format_obs(cam_high, cam_left, cam_right, joint_state, prompt):
-    """将相机帧和关节状态格式化为 VA Server 期望的格式."""
-    cam_high = cv2.cvtColor(cam_high, cv2.COLOR_BGR2RGB)
-    cam_left = cv2.cvtColor(cam_left, cv2.COLOR_BGR2RGB)
-    cam_right = cv2.cvtColor(cam_right, cv2.COLOR_BGR2RGB)
+    """Send half-resolution RGB observations; retain original capture/recording frames."""
+    cam_high = cv2.cvtColor(cv2.resize(cam_high, (320, 240), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2RGB)
+    cam_left = cv2.cvtColor(cv2.resize(cam_left, (320, 240), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2RGB)
+    cam_right = cv2.cvtColor(cv2.resize(cam_right, (320, 240), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2RGB)
     state = np.zeros(30, dtype=np.float32)
     n_joints = min(len(joint_state), 30)
     state[:n_joints] = joint_state[:n_joints].astype(np.float32)
@@ -370,6 +373,8 @@ def run_inference(cfg):
     client = WebsocketClientPolicy(host=cfg.server_host, port=cfg.server_port)
     save_dir = Path(cfg.save_dir) / (datetime.now().strftime("%Y%m%d_%H%M%S_%f") + "_" + cfg.run_mode)
     logger = InferenceLogger(str(save_dir), cfg.prompt)
+    recorder = None
+    recorder_log = None
     error = None
     total_steps = 0
     stopped = False
@@ -401,6 +406,7 @@ def run_inference(cfg):
             'can_left': piper.can_left, 'can_right': piper.can_right,
             'camera_serials_high_left_right': ['CC1C8100041','CC1C810002Y','CC1C8100015'],
             'camera_shapes': [list(f.shape) for f in frames],
+            'request_image_shapes': [[240, 320, 3]] * 3,
             'camera_timestamps': camera.timestamps.tolist(),
             'joint_rad': state.tolist(), 'server_metadata': metadata,
             'server_host': cfg.server_host, 'server_port': cfg.server_port,
@@ -416,6 +422,17 @@ def run_inference(cfg):
         if cfg.run_mode == 'check':
             print('CHECK PASSED: no reset, enable, mode change or movement sent')
             return
+        if getattr(cfg, 'record_continuous', False):
+            recorder_log = (save_dir / 'recorder.log').open('w')
+            recorder = subprocess.Popen([sys.executable, str(Path(__file__).with_name('continuous_recorder.py')),
+                '--output', str(save_dir / 'continuous'), '--stop-file', str(save_dir / 'recorder.stop')],
+                stdout=recorder_log, stderr=subprocess.STDOUT)
+            deadline = time.monotonic() + 20
+            while not (save_dir / 'continuous' / 'ready.json').exists():
+                if recorder.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError('Continuous camera recorder failed to start; see recorder.log')
+                time.sleep(.1)
+            logger.recorder = recorder
         smoother = JointTrajectorySmoother(smooth_method=cfg.smooth_method,
             smooth_factor=cfg.smooth_factor, v_max=cfg.v_max, dt=cfg.action_dt,
             outlier_threshold_deg=cfg.outlier_threshold, savgol_window=cfg.savgol_window,
@@ -438,6 +455,14 @@ def run_inference(cfg):
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+        if recorder is not None:
+            (save_dir / 'recorder.stop').touch()
+            try:
+                recorder.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                recorder.terminate()
+                recorder.wait(timeout=5)
+            recorder_log.close()
         try:
             if logger.video_writers:
                 for writer in logger.video_writers.values():
@@ -491,7 +516,9 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
     status.phase = "reset"
     t0 = time.time()
     print("  → 重置 Server...")
-    client.reset(prompt)
+    reset_reply = client.reset(prompt)
+    validate_reset(reset_reply, cfg.action_contract)
+    logger.diagnostic("action_contract", {"mode": cfg.action_contract, "reset": reset_reply})
     print(f"    重置完成 ({time.time()-t0:.2f}s)")
 
     # ── 等待相机就绪 ──
@@ -515,6 +542,8 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
     total_steps = 0
 
     for chunk_idx in (itertools.count() if cfg.max_chunks == 0 else range(cfg.max_chunks)):
+        if getattr(logger, 'recorder', None) is not None and logger.recorder.poll() is not None:
+            raise RuntimeError('Continuous recorder exited; see recorder.log')
         need_stop = _check_emergency_stop()
         if need_stop:
             raise StopRequested('Runtime stop requested')
@@ -528,13 +557,16 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
         t_infer_s = time.time() - t_infer_start
         logger.log_server_infer(t_infer_s)
 
+        if 'prediction_artifacts' in ret:
+            logger.diagnostic('prediction_artifacts', ret['prediction_artifacts'])
         action = np.asarray(ret['action'])
         if action.ndim != 3 or not np.isfinite(action).all() or action.shape[0] not in (14, 28) or min(action.shape[1:]) <= 0:
             raise ValueError(f'Invalid joint action tensor: {action.shape}')
         np.save(logger.save_dir / f'prediction_{chunk_idx:04d}.npy', action)
+        executable_action = execution_tensor(action, cfg.action_contract)
         from action_diagnostics import summarize_action
         logger.diagnostic('action_diagnostics', {'chunk': chunk_idx + 1,
-            'summary': summarize_action(action, first_chunk=first, current_joints=initial_obs['observation.state'][:12]),
+            'summary': summarize_action(executable_action, first_chunk=first, current_joints=initial_obs['observation.state'][:12]),
             'task_success': None})
         if cfg.run_mode == 'shadow':
             print(f'SHADOW prediction saved: {action.shape}; no enable or movement sent')
@@ -555,9 +587,7 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
         all_raw = np.empty((total_action_steps, 14), dtype=np.float64)
         for i in range(action.shape[1]):
             for j in range(action.shape[2]):
-                step = action[:, i, j].flatten()
-                if step.shape[0] == 28:
-                    step = np.concatenate([step[14:20], step[26:27], step[20:26], step[27:28]], axis=0)
+                step = executable_action[:, i, j].flatten()
                 all_raw[i * action.shape[2] + j] = step
 
         # ── 平滑处理 ──
@@ -591,11 +621,7 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
 
             left_joints, right_joints, left_g, right_g = \
                 model_joint_action_to_piper(action_step)
-            left_g, right_g = left_g * 0.80, right_g * 0.90
-            if left_g <= 0.02:
-                left_g = 0
-            if right_g <= 0.02:
-                right_g = 0
+            left_g, right_g = gripper_targets(left_g, right_g, cfg.action_contract)
 
             if _check_emergency_stop():
                 raise StopRequested('Runtime stop requested')
@@ -705,6 +731,8 @@ def parse_args():
     modes.add_argument('--shadow', action='store_const', dest='run_mode', const='shadow')
     modes.add_argument('--execute', action='store_const', dest='run_mode', const='execute')
     parser.set_defaults(run_mode='check')
+    parser.add_argument('--record-continuous', action='store_true')
+    parser.add_argument('--action-contract', choices=['legacy174', 'piperpika'], default='legacy174')
     parser.add_argument('--prompt', default='breakfast')
     parser.add_argument('--control_mode', choices=['movej'], default='movej')
     parser.add_argument('--max_chunks', type=int, default=0, help='0 for unlimited execution (174 launcher default)')
@@ -714,7 +742,7 @@ def parse_args():
     parser.add_argument('--speed-percent', type=int, default=6, choices=range(1,7))
     parser.add_argument('--max-target-delta-deg', type=float, default=None, help='Optional target delta guard in degrees; disabled by default to match 174')
     parser.add_argument('--gripper-mode', choices=['hold','legacy174'], default='legacy174',
-                        help='hold sends no gripper commands; legacy174 uses 0.8/0.9 scaling with 175 firmware caps')
+                        help='hold sends no gripper commands; legacy174 sends gripper commands; action-contract selects scaling; firmware caps remain')
     parser.add_argument('--save_dir', default=str(Path(__file__).with_name('inference_logs')))
     cli = parser.parse_args()
     if cli.max_chunks < 0 or (cli.max_target_delta_deg is not None and (not np.isfinite(cli.max_target_delta_deg) or not 0 < cli.max_target_delta_deg <= 30)):

@@ -136,6 +136,8 @@ bash run_gpu_demo.sh bread_test000 --shadow
 
 175 每次运行目录新增：
 - `rpc_diagnostics.jsonl`：打包、请求等待、解包耗时及对应服务端诊断。
+- 2026-10-19 起同时保存响应的 `server_timing` 原始字段；`server_policy_s` 是其中 `infer_ms` 换算的秒数，适用于 predict、kv、reset。计时位于服务端接收及解包之后、响应打包发送之前，包含 policy 包装层处理及预测文件保存，不等同于单独的 NPU 降噪时间。未增加设备同步，因此也不是专门的设备性能测量。
+- `rpc_outside_policy_s = total_s - server_policy_s` 是 RPC 中 policy 计时之外的耗时，包含网络、两端编解包及调度，不能标成纯网络延迟。保留原始差值，不截断负值。缺少有效服务端计时时这两个派生字段为 null。`prev_total_ms` 包含等待下一条请求，不能当成计算耗时；旧日志未保存此字段，不能回填历史数值。下次客户端启动自动生效，无需为此重启服务端。
 - `action_diagnostics.jsonl`：首块跳过填充后的关节变化、夹爪范围、初始目标偏差等。
 - `execution_feedback.jsonl`：实机关键帧目标/反馈角度、最大误差及现有到位等待返回值。
 - `chunk_timings.jsonl`：逐块推理、执行、KV 时间。
@@ -148,3 +150,7 @@ bash run_gpu_demo.sh bread_test000 --shadow
 ### 故障退出修复（2026-10-14）
 
 当前推理客户端遇软件异常时停止发送新动作、置位软件停止并断开连接，不再自动下发电子停止/reset/disable。不会自动恢复。该修改消除了已知的软件异常触发电子停止路径，但不构成经过验证的位置保持；已接收的目标仍可能继续执行。机械臂保持停止，详见 OPERATIONS.md 的事件后修复记录。
+
+2026-10-19 传输分段日志：客户端附带 `_rpc_request_id`，服务端在进入模型前移除。客户端 `rpc_diagnostics.jsonl` 的 `request_id` 与服务端控制台 `RPC_TIMING` JSON 行对应。服务端记录请求解包、policy、响应打包、收齐请求至开始发送响应、send 调用耗时。使用 `../latency_analysis/merge_transport_timing.py CLIENT_JSONL SERVER_LOG OUTPUT_CSV` 配对。
+
+`transport_and_scheduling_s = send_wait_receive_s - server_received_to_send_s`，已经排除两端编解包及服务端 policy/本地处理，仍包含网络、SSH/WebSocket 缓冲和调度，不是纯链路时间。`recv_wait_s` 包含等待客户端动作执行及下一条请求，不得作为上传耗时；`send_call_s` 可能仅反映缓冲区写入，不能作为下载耗时或再从残差中扣除。无需两机时钟同步；不报告单向上传/下载时间。缺少配对记录则标为 unmatched，不用零填充。服务端准确响应打包耗时在发送后落日志，不能放进同一个响应而不再次打包。

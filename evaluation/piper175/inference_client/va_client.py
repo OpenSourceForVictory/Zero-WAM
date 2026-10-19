@@ -7,9 +7,11 @@ VA Server 的 Websocket 客户端
 
 import json
 import logging
+import math
 import os
 import threading
 import time
+import uuid
 from pathlib import Path
 from stop_request import StopRequested
 from typing import Dict, Optional, Tuple
@@ -74,8 +76,10 @@ class WebsocketClientPolicy:
             if self._stopped():
                 raise StopRequested('Runtime stop requested before sending to server')
 
+            request_id = uuid.uuid4().hex
+            request = dict(obs, _rpc_request_id=request_id)
             t0 = time.perf_counter()
-            data = self._packer.pack(obs)
+            data = self._packer.pack(request)
             t1 = time.perf_counter()
             self._ws.send(data)
             deadline = time.monotonic() + 300
@@ -98,6 +102,19 @@ class WebsocketClientPolicy:
                 'total_s': t3-t0, 'pack_s': t1-t0, 'send_wait_receive_s': t2-t1,
                 'unpack_s': t3-t2, 'request_bytes': len(data), 'response_bytes': len(response),
                 'server': result.get('diagnostics'), 'endpoint': self._uri}
+            self.last_timing['request_id'] = request_id
+            # Preserve the server's own policy timer for predict, KV and reset.
+            # prev_total_ms also includes waiting for a request: never use it
+            # as compute time. The residual is NOT a pure network measurement.
+            server_timing = result.get('server_timing')
+            self.last_timing['server_timing'] = server_timing
+            infer_ms = server_timing.get('infer_ms') if isinstance(server_timing, dict) else None
+            valid = (isinstance(infer_ms, (int, float)) and not isinstance(infer_ms, bool)
+                     and math.isfinite(infer_ms) and infer_ms >= 0)
+            server_s = infer_ms / 1000 if valid else None
+            self.last_timing['server_policy_s'] = server_s
+            self.last_timing['rpc_outside_policy_s'] = (
+                t3-t0-server_s if server_s is not None else None)
             if self.diagnostics_path:
                 try:
                     with Path(self.diagnostics_path).open('a') as f:
@@ -113,6 +130,13 @@ class WebsocketClientPolicy:
         a demo: the registry may contain unrelated tasks or codec test videos.
         """
         request = {"reset": True, "prompt": prompt}
+        for env, key in (("ZERO_WAM_VIDEO_GUIDANCE_SCALE", "video_guidance_scale"),
+                         ("ZERO_WAM_ICL_GUIDANCE_SCALE", "icl_guidance_scale")):
+            if env in os.environ:
+                value = float(os.environ[env])
+                if not __import__("math").isfinite(value):
+                    raise ValueError(f"Invalid {env}")
+                request[key] = value
         latent_path = os.environ.get("ZERO_WAM_ICL_LATENT_PATH")
         if latent_path:
             if icl_id or os.environ.get("ZERO_WAM_ICL_ID"):
