@@ -395,3 +395,53 @@ def test_gateway_uses_measured_sense_endpoint_without_actuating(monkeypatch):
     assert r.grip==0. and r.sense_at>0
     msg.error=True;msg.angle=.2;msg.distance=.01;r.sense(msg)
     assert r.grip==0.
+
+
+def test_follow_pause_gap_is_not_camera_dropout(dataset):
+    path=dataset/'manifest.json';meta=json.loads(path.read_text())
+    meta['pause_follow_skips_capture']=True
+    path.write_text(json.dumps(meta))
+    path=dataset/'frames.jsonl';frames=[json.loads(x) for x in path.read_text().splitlines()]
+    for i,f in enumerate(frames):
+        f['capture_segment']=1 if i<6 else 2
+        if i>=6:
+            f['receive_time']+=30
+            f['source_times']=[t+30 for t in f['source_times']]
+    path.write_text('\n'.join(json.dumps(f) for f in frames))
+    path=dataset/'messages.jsonl';messages=[json.loads(x) for x in path.read_text().splitlines()]
+    for r in messages:
+        if r['source_time']>=10.59:
+            r['source_time']+=30;r['receive_time']+=30
+    path.write_text('\n'.join(json.dumps(r) for r in messages))
+    _,quality=core.build_index(dataset)
+    assert quality['valid']
+    assert quality['achieved_camera_hz']==pytest.approx(10)
+    assert quality['wall_duration_s']>30
+    # The same gap within an active segment must still fail quality checks.
+    for f in frames:f['capture_segment']=1
+    (dataset/'frames.jsonl').write_text('\n'.join(json.dumps(f) for f in frames))
+    assert not core.build_index(dataset)[1]['valid']
+
+
+def test_capture_gate_paused_active_and_stale(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT))
+    import collect
+    obs=collect.Observer.__new__(collect.Observer)
+    obs.follow_gate=True;obs.capture_active=False
+    obs.rows={'control_mode':[{'receive_time':100.0}]}
+    monkeypatch.setattr(collect.time,'time',lambda:100.01)
+    assert not obs.capture_allowed()
+    obs.capture_active=True
+    assert obs.capture_allowed()
+    monkeypatch.setattr(collect.time,'time',lambda:101.0)
+    assert not obs.capture_allowed()
+    obs.follow_gate=False
+    assert obs.capture_allowed()
+
+
+def test_resume_waits_for_causal_recorded_state():
+    p={'required_topics':{'state_left':None,'action_left':None},'max_skew':.1}
+    rows={k:[row(k,9.99),row(k,10.025)] for k in p['required_topics']}
+    # At the first resumed exposure, old samples were not recorded and new ones are in the future.
+    assert not core.capture_boundary_ready(rows,10.020,10.0,p)
+    assert core.capture_boundary_ready(rows,10.040,10.0,p)

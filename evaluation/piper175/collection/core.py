@@ -71,6 +71,13 @@ def select_sample(rows, anchor, tolerance):
     return max(eligible, key=lambda r: r['source_time']) if eligible else None
 
 
+def capture_boundary_ready(rows, anchor, since, profile):
+    """Resume only with causal samples actually retained after the active transition."""
+    return all(select_sample([r for r in rows[k] if r['receive_time'] >= since],
+                             anchor, profile['max_skew']) is not None
+               for k in profile['required_topics'])
+
+
 def dual_vector(left, right):
     l, r = left['message']['position'], right['message']['position']
     return l[:6]+r[:6]+[l[6],r[6]]
@@ -108,11 +115,14 @@ def build_index(episode):
         aligned.append({'time':t, 'frame':frame['file'], 'streams':selected,
                         'state':action_vector(selected,p,'state'),
                         'action':action_vector(selected,p,'action')})
-    duration = frames[-1]['receive_time']-frames[0]['receive_time'] if len(frames)>1 else 0
-    rate = (len(frames)-1)/duration if duration>0 else 0
-    gaps = np.diff([x['receive_time'] for x in frames])
+    wall_duration = frames[-1]['receive_time']-frames[0]['receive_time'] if len(frames)>1 else 0
+    gaps = np.asarray([b['receive_time']-a['receive_time'] for a,b in zip(frames,frames[1:])
+                       if not meta.get('pause_follow_skips_capture') or
+                       a.get('capture_segment',0)==b.get('capture_segment',0)])
+    duration = float(gaps.sum())
+    rate = len(gaps)/duration if duration>0 else 0
     report = {'frames':len(frames), 'aligned':len(aligned), 'rejected':len(rejected),
-              'duration_s':duration, 'achieved_camera_hz':rate,
+              'duration_s':duration, 'wall_duration_s':wall_duration, 'achieved_camera_hz':rate,
               'max_camera_gap_s':float(gaps.max()) if len(gaps) else None,
               'rejections':rejected[:20], 'frame_errors':frame_errors[:20], 'capture_status':meta['status']}
     reasons=[]

@@ -17,7 +17,7 @@ from urllib.request import urlopen
 from urllib.parse import urlencode
 
 import numpy as np
-from core import load_profile, decode_cameras, valid_message, build_index, vector_order
+from core import load_profile, decode_cameras, valid_message, build_index, vector_order, capture_boundary_ready
 
 ROOT = Path(__file__).resolve().parent
 
@@ -140,6 +140,10 @@ class Observer:
         self.node=rclpy.create_node('pika175_collection_observer')
         self.rows={k:deque(maxlen=2000) for k in {**p['required_topics'],**p['optional_topics']}}
         self.lock=threading.Lock(); self.output=None; self.error=None
+        self.follow_gate = p.get('control_backend') == 'single_sense_switch'
+        self.capture_active = not self.follow_gate
+        self.capture_since = 0.0
+        self.capture_segment = 0
         qos=QoSProfile(depth=100,reliability=ReliabilityPolicy.BEST_EFFORT,
                        durability=DurabilityPolicy.VOLATILE)
         def callback(key):
@@ -151,8 +155,15 @@ class Observer:
                     row={'stream':key,'source_time':source,'receive_time':now,
                          'receive_monotonic':time.monotonic(),'message':d}
                     with self.lock:
+                        if self.follow_gate and key == 'control_mode':
+                            mode = json.loads(d['data'])
+                            active = mode.get('phase') == 'active' and mode.get('execute') is True and not mode.get('error')
+                            if active and not self.capture_active:
+                                self.capture_since = now
+                                self.capture_segment += 1
+                            self.capture_active = active
                         self.rows[key].append(row)
-                        if self.output:
+                        if self.output and self.capture_allowed():
                             self.output.write(json.dumps(row,allow_nan=False)+'\n')
                 except Exception as e:
                     self.error=repr(e)
@@ -160,6 +171,13 @@ class Observer:
         for key,(topic,typ) in {**p['required_topics'],**p['optional_topics']}.items():
             self.node.create_subscription(get_message(typ),topic,callback(key),qos)
         self.thread=threading.Thread(target=self.spin,daemon=True); self.thread.start()
+
+    def capture_allowed(self):
+        # Caller holds self.lock. Stale or missing mode must never enable capture.
+        if not self.follow_gate:
+            return True
+        rows = self.rows['control_mode']
+        return self.capture_active and bool(rows) and time.time()-rows[-1]['receive_time'] <= .2
 
     def spin(self):
         try: self.ros.spin(self.node)
@@ -206,6 +224,7 @@ def record(p,args):
         episode=base/(time.strftime('episode_%Y%m%d_%H%M%S')+'_'+str(os.getpid()))
         episode.mkdir(); (episode/'frames').mkdir()
         meta={'schema':'pika175-v1','profile':p,'task':args.task,'status':'recording',
+              'pause_follow_skips_capture':obs.follow_gate,
               'started_at':time.time(),'image_encoding':'BGR uint8, lossless NPZ',
               'vector_order':vector_order(p),
               'active_arms':p.get('active_arms',['left','right']),
@@ -226,23 +245,42 @@ def record(p,args):
         with obs.lock:
             # Preserve pre-roll for causal alignment of first image.
             for queue in obs.rows.values():
-                for row in queue: messages_file.write(json.dumps(row,allow_nan=False)+'\n')
+                for row in queue:
+                    if obs.capture_allowed() and row['receive_time'] >= obs.capture_since:
+                        messages_file.write(json.dumps(row,allow_nan=False)+'\n')
             obs.output=messages_file
         for sig in (signal.SIGINT,signal.SIGTERM):
             old[sig]=signal.signal(sig,lambda *_:stop.set())
         print(f'Recording {episode}; Ctrl+C ends ONLY recording, not teleoperation.',flush=True)
-        start=time.monotonic(); next_tick=start; n=0; last_stamps=None
+        start=time.monotonic(); next_tick=start; n=0; last_stamps=None; ready_segment=None
         while not stop.is_set() and (args.seconds<=0 or time.monotonic()-start<args.seconds) and (not getattr(args,'max_frames',0) or n<args.max_frames):
+            with obs.lock:
+                capturing = obs.capture_allowed()
+            if not capturing:
+                if obs.error: raise RuntimeError(obs.error)
+                stop.wait(.02)
+                next_tick=time.monotonic()
+                continue
             issues=obs.readiness(p)
             if issues: raise RuntimeError('; '.join(issues))
             if shutil.disk_usage(base).free < p['min_free_gb']*1e9: raise RuntimeError('Low disk space')
             fresh=next_camera_frame(p,last_stamps,stop)
             if fresh is None:break
             images,stamps=fresh
-            name=f'frames/{n:06d}.npz'
-            np.savez(episode/name,**images,timestamps=stamps)
-            frames_file.write(json.dumps({'file':name,'source_times':stamps.tolist(),
-                                          'receive_time':time.time()})+'\n')
+            with obs.lock:
+                # Recheck after camera I/O; exclude frames exposed before resuming.
+                if not obs.capture_allowed() or np.any(stamps < obs.capture_since):
+                    continue
+                segment=obs.capture_segment
+                if obs.follow_gate and ready_segment != segment:
+                    if not capture_boundary_ready(obs.rows, max(stamps), obs.capture_since, p):
+                        continue
+                    ready_segment = segment
+                name=f'frames/{n:06d}.npz'
+                np.savez(episode/name,**images,timestamps=stamps)
+                frames_file.write(json.dumps({'file':name,'source_times':stamps.tolist(),
+                                              'capture_segment':segment,
+                                              'receive_time':time.time()})+'\n')
             n+=1; last_stamps=stamps
             if n%int(max(1,p['hz']))==0: print(f'{n} frames, elapsed {time.monotonic()-start:.1f}s',flush=True)
             next_tick=max(next_tick+1/p['hz'],time.monotonic()); stop.wait(max(0,next_tick-time.monotonic()))
