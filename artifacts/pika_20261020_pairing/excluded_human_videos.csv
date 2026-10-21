@@ -1,0 +1,5 @@
+﻿directory,video,accepted,reason,started_at,duration_s,exists,manifest_status
+episode_20261020_195524_891450640,pika_aloha_10_20_human/human_video/episode_20261020_195524_891450640/video.mp4,False,discarded,1792497324.974647,22.838065147399902,True,complete
+episode_20261020_195805_714192620,pika_aloha_10_20_human/human_video/episode_20261020_195805_714192620/video.mp4,False,discarded,1792497485.800593,11.692745923995972,True,complete
+episode_20261020_200136_442878372,pika_aloha_10_20_human/human_video/episode_20261020_200136_442878372/video.mp4,False,discarded,1792497696.5627084,10.039303302764893,True,complete
+episode_20261020_200224_75544028,pika_aloha_10_20_human/human_video/episode_20261020_200224_75544028/video.mp4,False,discarded,1792497744.1610436,5.72865104675293,True,complete

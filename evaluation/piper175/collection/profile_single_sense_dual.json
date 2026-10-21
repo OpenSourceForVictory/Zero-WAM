@@ -28,7 +28,7 @@
   "hz": 30,
   "max_age": 0.2,
   "max_skew": 0.1,
-  "min_free_gb": 10,
+  "min_free_gb": 3,
   "required_topics": {
     "action_left": [
       "/pika_switch/action_l",

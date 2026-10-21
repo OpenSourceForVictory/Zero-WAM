@@ -1,0 +1,6 @@
+__pycache__/
+*.npz
+*.log
+pika_20261020_pairing/lerobot_prompt_patch/
+pika_20261020_pairing/episode_prompts.candidate.json
+pika_20261020_pairing/*待确认.xlsx

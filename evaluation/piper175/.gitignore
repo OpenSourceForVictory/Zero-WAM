@@ -27,3 +27,6 @@ benchmark_logs/
 /collection/*.local.json
 
 /staged/
+
+/collection/.relocalize_status.json
+/collection/.relocalize_status.tmp

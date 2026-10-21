@@ -1,0 +1,42 @@
+[
+  {
+    "directory": "episode_20261020_195524_891450640",
+    "video": "pika_aloha_10_20_human/human_video/episode_20261020_195524_891450640/video.mp4",
+    "accepted": false,
+    "reason": "discarded",
+    "started_at": 1792497324.974647,
+    "duration_s": 22.838065147399902,
+    "exists": true,
+    "manifest_status": "complete"
+  },
+  {
+    "directory": "episode_20261020_195805_714192620",
+    "video": "pika_aloha_10_20_human/human_video/episode_20261020_195805_714192620/video.mp4",
+    "accepted": false,
+    "reason": "discarded",
+    "started_at": 1792497485.800593,
+    "duration_s": 11.692745923995972,
+    "exists": true,
+    "manifest_status": "complete"
+  },
+  {
+    "directory": "episode_20261020_200136_442878372",
+    "video": "pika_aloha_10_20_human/human_video/episode_20261020_200136_442878372/video.mp4",
+    "accepted": false,
+    "reason": "discarded",
+    "started_at": 1792497696.5627084,
+    "duration_s": 10.039303302764893,
+    "exists": true,
+    "manifest_status": "complete"
+  },
+  {
+    "directory": "episode_20261020_200224_75544028",
+    "video": "pika_aloha_10_20_human/human_video/episode_20261020_200224_75544028/video.mp4",
+    "accepted": false,
+    "reason": "discarded",
+    "started_at": 1792497744.1610436,
+    "duration_s": 5.72865104675293,
+    "exists": true,
+    "manifest_status": "complete"
+  }
+]

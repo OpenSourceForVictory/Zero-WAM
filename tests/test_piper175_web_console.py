@@ -236,3 +236,71 @@ def test_start_reports_existing_controller_fault(console,monkeypatch):
     monkeypatch.setattr(console,'call',lambda *a:{'execute':True,'error':'stale CAN'})
     with pytest.raises(RuntimeError,match='stale CAN'):
         console.do_controller_start({'ready':True})
+
+
+def test_relocalize_requires_stationary_and_no_recording(console):
+    with pytest.raises(ValueError,match='放稳'):console.submit('relocalize',{})
+    console.record={'id':'take'}
+    with pytest.raises(ValueError,match='结束当前录制'):console.submit('relocalize',{'stationary':True})
+    console.record=None;console.jobs['record']={'running':True}
+    with pytest.raises(ValueError,match='结束当前录制'):console.submit('relocalize',{'stationary':True})
+
+
+def test_relocalize_blocks_recording_and_arm_switch(console):
+    console.jobs['control']={'running':True,'action':'relocalize'}
+    for action in ('start','session_start'):
+        with pytest.raises(ValueError,match='重新定位'):console.submit(action,{})
+    with pytest.raises(ValueError,match='正在处理'):console.submit('left',{})
+
+
+def test_relocalize_runs_worker(console,monkeypatch):
+    called=threading.Event()
+    monkeypatch.setattr(console,'do_relocalize',lambda body:called.set())
+    console.submit('relocalize',{'stationary':True})
+    assert called.wait(1)
+
+
+def test_zero_requires_valid_selection_readiness_and_idle_record(console):
+    with pytest.raises(ValueError,match='选择'):
+        console.submit('enable_zero',{'arm':'invalid','ready':True})
+    with pytest.raises(ValueError,match='清空'):
+        console.submit('enable_zero',{'arm':'both'})
+    console.record={'id':'active'}
+    with pytest.raises(ValueError,match='录制'):
+        console.submit('enable_zero',{'arm':'both','ready':True})
+
+
+def test_zero_blocks_recording_and_other_control(console):
+    console.jobs['control']={'running':True,'action':'enable_zero'}
+    with pytest.raises(ValueError,match='归零'):
+        console.submit('start',{})
+    with pytest.raises(ValueError,match='处理'):
+        console.submit('left',{})
+
+
+def test_zero_driver_fault_screen():
+    import enable_zero
+    enable_zero.check_flags('driver_overcurrent: False\nstall_status: False')
+    for flag in ['driver_overcurrent','motor_overheating','sensor_status','stall_status']:
+        with pytest.raises(RuntimeError,match=flag):
+            enable_zero.check_flags(flag+': True')
+
+
+def test_zero_failure_stops_before_second_arm(tmp_path,monkeypatch):
+    import enable_zero as zero
+    import subprocess
+    root=tmp_path/'collection';root.mkdir()
+    monkeypatch.setattr(zero,'ROOT',root)
+    monkeypatch.setattr(zero,'RUNTIME',tmp_path)
+    monkeypatch.setattr(zero,'controllers',lambda:[])
+    monkeypatch.setattr(zero,'check_arm',lambda side:None)
+    monkeypatch.setattr(sys,'argv',['enable_zero.py','--arm','both'])
+    calls=[]
+    def run(cmd,**kwargs):
+        calls.append(cmd)
+        if '--execute' in cmd:raise subprocess.CalledProcessError(1,cmd)
+    monkeypatch.setattr(zero.subprocess,'run',run)
+    with pytest.raises(subprocess.CalledProcessError):zero.main()
+    moves=[cmd for cmd in calls if '--execute' in cmd]
+    assert len(moves)==1 and moves[0][moves[0].index('--arm')+1]=='left'
+    assert calls[-1][-1]=='stop'

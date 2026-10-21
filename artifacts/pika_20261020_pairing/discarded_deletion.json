@@ -1,0 +1,133 @@
+{
+  "authorized_by_user": true,
+  "started_at": 1792500505.2667034,
+  "deleted": [
+    "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20_human/human_video/episode_20261020_195524_891450640",
+    "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20_human/human_video/episode_20261020_195805_714192620",
+    "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20_human/human_video/episode_20261020_200136_442878372",
+    "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20_human/human_video/episode_20261020_200224_75544028"
+  ],
+  "entries": [
+    {
+      "path": "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20_human/human_video/episode_20261020_195524_891450640",
+      "review": {
+        "accepted": false,
+        "reviewed_at": 1792497347.8299112,
+        "reason": "discarded"
+      },
+      "files": [
+        {
+          "relative": "manifest.json",
+          "bytes": 342
+        },
+        {
+          "relative": "timestamps.jsonl",
+          "bytes": 33793
+        },
+        {
+          "relative": "video.mp4",
+          "bytes": 8777039
+        },
+        {
+          "relative": "quality.json",
+          "bytes": 209
+        },
+        {
+          "relative": "review.json",
+          "bytes": 85
+        }
+      ]
+    },
+    {
+      "path": "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20_human/human_video/episode_20261020_195805_714192620",
+      "review": {
+        "accepted": false,
+        "reviewed_at": 1792497497.53092,
+        "reason": "discarded"
+      },
+      "files": [
+        {
+          "relative": "manifest.json",
+          "bytes": 342
+        },
+        {
+          "relative": "timestamps.jsonl",
+          "bytes": 17262
+        },
+        {
+          "relative": "video.mp4",
+          "bytes": 4669892
+        },
+        {
+          "relative": "quality.json",
+          "bytes": 208
+        },
+        {
+          "relative": "review.json",
+          "bytes": 83
+        }
+      ]
+    },
+    {
+      "path": "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20_human/human_video/episode_20261020_200136_442878372",
+      "review": {
+        "accepted": false,
+        "reviewed_at": 1792497706.6603355,
+        "reason": "discarded"
+      },
+      "files": [
+        {
+          "relative": "manifest.json",
+          "bytes": 343
+        },
+        {
+          "relative": "timestamps.jsonl",
+          "bytes": 14817
+        },
+        {
+          "relative": "video.mp4",
+          "bytes": 3929030
+        },
+        {
+          "relative": "quality.json",
+          "bytes": 209
+        },
+        {
+          "relative": "review.json",
+          "bytes": 85
+        }
+      ]
+    },
+    {
+      "path": "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20_human/human_video/episode_20261020_200224_75544028",
+      "review": {
+        "accepted": false,
+        "reviewed_at": 1792497749.9541287,
+        "reason": "discarded"
+      },
+      "files": [
+        {
+          "relative": "manifest.json",
+          "bytes": 343
+        },
+        {
+          "relative": "timestamps.jsonl",
+          "bytes": 8391
+        },
+        {
+          "relative": "video.mp4",
+          "bytes": 2150475
+        },
+        {
+          "relative": "quality.json",
+          "bytes": 208
+        },
+        {
+          "relative": "review.json",
+          "bytes": 85
+        }
+      ]
+    }
+  ],
+  "complete": true
+}

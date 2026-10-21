@@ -1,0 +1,11 @@
+{
+  "complete": true,
+  "backup": "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20/prompt_annotation_backup_20261020_204825",
+  "artifact_directory": "/media/huawei/Samsung_T5/data/ICL/261020/prompt与示教配对_20261020",
+  "dataset": "/media/huawei/Samsung_T5/data/ICL/261020/pika_aloha_10_20/lerobot28_v21_h264_crf18_20261020_182114",
+  "episodes": 96,
+  "frames": 110928,
+  "tasks": 32,
+  "non_task_columns_unchanged": true,
+  "validation_mapping_confirmed": false
+}

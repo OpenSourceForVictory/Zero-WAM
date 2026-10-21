@@ -1,0 +1,18 @@
+{
+  "source_workbook": "/media/huawei/Samsung_T5/data/ICL/261020/Zero-WAM_ALOHA_长程任务_含12段验证视频_英文Prompt.xlsx",
+  "workbook_sha256": "75cb8e40db9129497351ad41b44b38e8abc41fffb97e2a7faf3849b4980d459b",
+  "robot_episodes": 96,
+  "frames": 110928,
+  "training_human_videos": 32,
+  "excluded_human_videos": 4,
+  "validation_human_videos": 12,
+  "distinct_prompts": 32,
+  "mapping_status": "confirmed_recording_order",
+  "original_lerobot_task_indices": {
+    "0": 110928
+  },
+  "original_tasks": "{\"task_index\": 0, \"task\": \"pika_aloha_10_20\"}\n",
+  "datasets_modified": false,
+  "content_visually_verified": false,
+  "validation_layout_workbook_bytes": 0
+}

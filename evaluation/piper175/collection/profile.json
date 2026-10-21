@@ -11,7 +11,7 @@
   "hz": 10,
   "max_age": 0.2,
   "max_skew": 0.1,
-  "min_free_gb": 10,
+  "min_free_gb": 3,
   "required_topics": {
     "action_left": ["/joint_states_gripper_l", "sensor_msgs/msg/JointState"],
     "action_right": ["/joint_states_gripper_r", "sensor_msgs/msg/JointState"],

@@ -78,11 +78,12 @@ class Console:
             recording=None if not rec else {k:rec.get(k) for k in ('id','task','phase','frames','started_at','episode','error')}
             if recording:recording['elapsed_s']=round(time.time()-rec['started_at'],1)
             return {'control':dict(self.control),'recording':recording,'jobs':dict(self.jobs),
+                    'relocalization':self.relocalization_status(),
                     'logs':list(self.logs),'last_result':self.last_result,'data_root':str(self.root),
                     'conversion':'legacy28','fps':(self.collection_session or self.config)['fps'],'session':self.collection_session,'config':dict(self.config)}
 
     def submit(self,action,body):
-        groups={'controller_start':'control','left':'control','right':'control','pause':'control','controller_stop':'control',
+        groups={'controller_start':'control','left':'control','right':'control','pause':'control','controller_stop':'control','relocalize':'control','enable_zero':'control',
                 'session_start':'record','config_save':'record','start':'record','save':'record','discard':'record','exit':'record','delete':'record','delete_last':'record','convert':'convert'}
         if action not in groups:raise ValueError('未知操作')
         group=groups[action]
@@ -93,6 +94,17 @@ class Console:
                 raise ValueError('正在转换，请完成后再操作录制数据')
             if action=='convert' and (self.collection_session or self.record or self.jobs.get('record',{}).get('running')):
                 raise ValueError('请先结束录制再转换')
+            relocating=self.jobs.get('control',{}).get('running') and self.jobs['control'].get('action') in ('relocalize','enable_zero')
+            if relocating and group=='record':raise ValueError('正在重新定位或归零，请等待完成后再录制')
+            if action=='enable_zero':
+                if body.get('arm') not in ('left','right','both'):raise ValueError('归零机械臂选择无效')
+                if body.get('ready') is not True:raise ValueError('请确认双臂运动范围已清空')
+                if self.record or self.jobs.get('record',{}).get('running'):raise ValueError('请先结束当前录制，再归零')
+            if action=='relocalize':
+                if self.record or self.jobs.get('record',{}).get('running'):
+                    raise ValueError('请先结束当前录制，再重新定位')
+                if body.get('stationary') is not True:
+                    raise ValueError('请确认 Sense 已放稳、无遮挡，基站不再移动')
             if action=='controller_start' and body.get('ready') is not True:
                 raise ValueError('请先确认现场已准备好')
             if action in ('save','discard','exit') and self.record and body.get('recording_id')!=self.record['id']:
@@ -111,6 +123,36 @@ class Console:
         with self.lock:
             self.workers=[(g,t) for g,t in self.workers if t.is_alive()]
             self.workers.append((group,worker));worker.start()
+
+    def relocalization_status(self):
+        try:return json.loads((ROOT/'.relocalize_status.json').read_text())
+        except (OSError,ValueError):return None
+
+    def do_relocalize(self,body):
+        if self.record:raise ValueError('请先结束当前录制')
+        self.log('重新定位开始：自动暂停跟随，期间请保持 Sense 和基站静止')
+        logdir=ROOT/'acceptance';logdir.mkdir(exist_ok=True)
+        logfile=logdir/('web_relocalize_'+time.strftime('%Y%m%d_%H%M%S')+'.log')
+        with logfile.open('w') as log:
+            proc=subprocess.run(['bash',str(ROOT/'relocalize.sh')],stdout=log,stderr=subprocess.STDOUT,timeout=180)
+        result=self.relocalization_status() or {}
+        self.log(result.get('phase','定位检查结束')+'；日志：'+str(logfile))
+        if proc.returncode:raise RuntimeError(result.get('phase','重新定位失败，请查看 '+str(logfile)))
+
+    def do_enable_zero(self,body):
+        if self.record:raise ValueError('请先结束当前录制')
+        logfile=ROOT/'acceptance'/('web_zero_'+time.strftime('%Y%m%d_%H%M%S')+'.log')
+        logfile.parent.mkdir(exist_ok=True)
+        self.log('开始使能归零：'+body['arm']+'；日志：'+str(logfile))
+        with logfile.open('w') as log:
+            proc=subprocess.Popen(['bash',str(ROOT.parent/'run.sh'),str(ROOT/'enable_zero.py'),
+                                   '--arm',body['arm']],cwd=ROOT.parent,stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT,text=True,bufsize=1)
+            for line in proc.stdout:
+                log.write(line);log.flush()
+                self.log(line.rstrip())
+            code=proc.wait()
+        if code:raise RuntimeError('使能归零失败，已停止后续归零；请查看日志：'+str(logfile))
 
     def do_controller_start(self,body):
         # The web entry must start acquisition, not assume yesterday's ROS nodes survived reboot.

@@ -71,3 +71,20 @@ bash run_piperpika_oct16.sh --execute --max_chunks 0
 用户要求不修改配置文件。服务端仅通过如下命令重启：
 `bash start_piperpika_oct16_server.sh --video-steps 4 --action-steps 10`
 日志：`outputs/piperpika_live_oct19/server_video4_action10.log`。启动脚本和va_piperpika_train_cfg.py保持原样；覆盖参数优先于脚本的--steps。恢复客户端前要求reset回复video_inference_steps=4、action_inference_steps=10。
+
+## 2026-10-21 长程 zero-shot 验证准备
+
+`artifacts/zeroshot_oct21/` 保存12段验证示教清单、采样与编码脚本及逐任务启动器。
+用户已确认验证视频按表格 V01～V12 顺序拍摄；每段绑定独立英文 prompt。
+服务端仍沿用10月19日 best_model、video=4/action=10、chunk_frames=2，未训练或替换权重。
+示教编码使用原模型 VAE/T5 作为推理条件，不属于权重训练。OpenCV缺少libGL，
+因此本机解码采样、服务器编码，沿用 prepare_aloha.encode 的采样及归一化方式。
+
+工控机部署目录 `inference_client/zeroshot_oct21/`，服务器编码输出
+`/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/zeroshot_long_oct21/`。
+启动器默认 check；不清除停止标志、不归零、不自动切换下一个场景。
+每次执行前必须告知 V 编号、独立 prompt 与实际示教起始画面，等待用户布局及清场确认。
+V01起始画面在 `artifacts/zeroshot_oct21/V01_start.png`。
+
+本次截至提交时仅准备输入、恢复 CAN 通信并做只读硬件检查；尚未执行 V01 真机推理。
+编码完成与否以服务器 `ENCODING_SUCCESS` 和单任务 .pth 为准；文件上传/启动不等于验证通过。
