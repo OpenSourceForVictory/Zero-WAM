@@ -1,0 +1,17 @@
+{
+  "source": "agilex@192.168.8.174:/home/agilex/models/lingbot-va-piper/client",
+  "captured_date": "2026-10-12",
+  "sha256_before_portability_change": {
+    "camera_manager.py": "10a17043e9c3988c1620fe78a88f1fa276d1df78107eeca28cb7ee5b94d15424",
+    "joint_trajectory_smoother.py": "15aa2cb1e1010d38a7ffe67584f7f74e02cdd759d4c692100403192bc130594d",
+    "msgpack_numpy.py": "3aa4f96689356e9ac837ec0a59c2f97f2d0ca3d2b713c83cd4f02f74bf8ce603",
+    "piper_controller.py": "31d955252186ef052ffc70975000a3b1fcd406cc4a80cf3a5c4adac17567f168",
+    "real_robot_inference_merged.py": "0b5df29cea1c1ccda08a3b3c40b1c252ab70420b9d80c0f914c0aed1af531bbc",
+    "realtime_visualizer.py": "09544dd38fe99a892b886c918095adf0cf9ab45cfe2b3b66251ddf495bae4f6a",
+    "requirements_client.txt": "e3b4b76d152d0ca5b642e8e9953fc2e1782feed8e1b62807259e71e93c1ba940",
+    "va_client.py": "cfd89d7d5b72e5dca9dd1fdf0e90cc5730dd16eca94dd982a927c7439073bc10"
+  },
+  "changes": [
+    "va_client.py: share the same original runtime_config.json as the motion loop; no control algorithm changes"
+  ]
+}

@@ -1,13 +1,14 @@
 """
-Piper 客户端：保留原 merged 流程，新增 Zero-WAM 16D EEF / MOVE_P 分支
+Piper 客户端：Zero-WAM 16D EEF 经本地逆解检查后执行 MOVE_J
 运行环境: piper_new
 
 用法:
     python -m evaluation.real_aloha.run_piper_eef --prompt "Place bread on plates" --control_mode movejs --max_chunks 1
 
 This entry retains the original hardware startup (including enable). It is not
-a preview. For 16D actions, MOVE_P replaces joint dispatch regardless of the
-movej/movejs selection; CPV remains supported only for joint actions.
+a preview. For 16D actions, controller-backed local IK selects a nearby joint
+target for MOVE_J; CPV remains supported only for the original joint actions.
+This does not provide scene collision checking or verified stopping dynamics.
 Source: user-provided lingbot-va-piper/client/real_robot_inference_merged.py.
 """
 
@@ -34,11 +35,20 @@ from coordinate_transform import compute_base_transform, transform_pose_euler
 from tcp_utils import flange_to_tcp_pose, tcp_to_flange_pose
 from piper_controller import PiperController
 from camera_manager import CameraManager
-from va_client import WebsocketClientPolicy
+from va_client import WebsocketClientPolicy as _SiteWebsocketClientPolicy
 from realtime_visualizer import InferenceStatus
 from joint_trajectory_smoother import JointTrajectorySmoother
+from .piper_kinematic_guard import LivePiperGuard
 
 os.environ["KINETO_LOG_LEVEL"] = "5"
+
+
+class WebsocketClientPolicy(_SiteWebsocketClientPolicy):
+    def close(self):
+        """Disconnect without the site's legacy close() clearing operator stop."""
+        if self._ws is not None:
+            self._ws.close()
+            self._ws = None
 
 
 # ─────────────────────── 配置 ───────────────────────
@@ -57,6 +67,7 @@ class BaseConfig:
     # CAN
     can_left: str = "can_left"
     can_right: str = "can_right"
+    firmware_version: str = "v188"
     # Camera
     cam_high: str = "/camera_f/color/image_raw"
     cam_left: str = "/camera_l/color/image_raw"
@@ -66,6 +77,10 @@ class BaseConfig:
     cam_fps: int = 30
     # Execution
     max_chunks: int = 50
+    max_eef_actions: int = 0  # 0 means complete chunks; positive limits the entire run.
+    eef_step_limit: float = 0.0
+    eef_rotation_limit: float = 0.0
+    hold_grippers: bool = False
     save_dir: str = "./inference_logs"
     wait_tol_deg: float = 3.0
     # Smoothing
@@ -379,13 +394,20 @@ def run_inference(cfg):
 
     # ── 1. 初始化 Piper 控制器 ──
     print("\n[1/4] 连接机械臂...")
-    piper = PiperController(can_left=cfg.can_left, can_right=cfg.can_right)
+    piper = PiperController(can_left=cfg.can_left, can_right=cfg.can_right,
+                            firmware_version=cfg.firmware_version)
     try:
         piper.connect()
+        if _check_emergency_stop():
+            raise RuntimeError('Operator stop is set; refusing to enable')
+        checked_eef_feedback(piper)
+        piper.eef_guard = LivePiperGuard(piper)
+        piper.eef_guard.check_start(piper)
         piper.enable()
     except Exception as e:
         print(f"[错误] 机械臂连接/使能失败: {e}")
         traceback.print_exc()
+        piper.close()
         return
 
     # ── 模式初始化 ──
@@ -566,6 +588,133 @@ def relative_eef_to_piper(action, initial, transform=None, tcp_offset=0.0):
     return (*poses, *grippers)
 
 
+def checked_eef_feedback(piper, after=None):
+    """Read actual SDK samples; never accept the wrapper's missing-data zeros."""
+    poses, stamps = [], []
+    for name, arm in (("left", piper.robot_l), ("right", piper.robot_r)):
+        status, pose = arm.get_arm_status(), arm.get_flange_pose()
+        if status is None or pose is None:
+            raise RuntimeError(f"{name}: missing EEF/status feedback")
+        code = getattr(status.msg.arm_status, 'value', status.msg.arm_status)
+        if code != 0:
+            raise RuntimeError(f"{name}: controller arm_status={code}: {status.msg.arm_status}")
+        control = getattr(status.msg, 'ctrl_mode', 1)
+        control = getattr(control, 'value', control)
+        if control != 1:
+            raise RuntimeError(f"{name}: controller ctrl_mode={control}; require CAN_CTRL, end teaching locally")
+        for sample in (status, pose):
+            age = time.time() - sample.timestamp
+            if not np.isfinite(age) or not -.1 <= age <= .5:
+                raise RuntimeError(f"{name}: stale EEF/status feedback")
+            stamps.append(sample.timestamp)
+        values = np.asarray(pose.msg, float)
+        if values.shape != (6,) or not np.isfinite(values).all():
+            raise RuntimeError(f"{name}: invalid flange pose")
+        poses.append(values)
+    if after is not None and min(stamps) <= after:
+        return None
+    return np.asarray(poses)
+
+
+def limit_eef_command(command, current, max_translation=0.0, max_rotation=0.0):
+    """Explicit commissioning limits in per-arm flange frames (m/rad)."""
+    poses = np.array(command[:2], dtype=float, copy=True)
+    current = np.asarray(current, dtype=float)
+    if poses.shape != (2, 6) or current.shape != (2, 6) or not np.isfinite([poses, current]).all():
+        raise ValueError('Expected finite dual-arm flange poses')
+    for i in range(2):
+        delta = poses[i, :3] - current[i, :3]
+        length = np.linalg.norm(delta)
+        if max_translation > 0 and length > max_translation:
+            poses[i, :3] = current[i, :3] + delta * (max_translation / length)
+        start = R.from_euler('xyz', current[i, 3:])
+        relative = (start.inv() * R.from_euler('xyz', poses[i, 3:])).as_rotvec()
+        angle = np.linalg.norm(relative)
+        if max_rotation > 0 and angle > max_rotation:
+            poses[i, 3:] = (start * R.from_rotvec(relative * max_rotation / angle)).as_euler('xyz')
+    return (*poses, *command[2:])
+
+
+def send_eef_checked(piper, command, record_path, timeout=3.0, hold_grippers=False):
+    """Count a step only after fresh feedback confirms the flange target."""
+    row = dict(target_flange=np.asarray(command[:2]).tolist(),
+               grippers_m=None if hold_grippers else list(command[2:]),
+               gripper_commands=0, method='local_ik_move_j', sent=False, pose_reached=False)
+    try:
+        row['before_flange'] = checked_eef_feedback(piper).tolist()
+        guard = getattr(piper, 'eef_guard', None)
+        if guard is None:
+            raise RuntimeError('Missing controller-backed kinematic guard; no command sent')
+        row['kinematic_preflight'] = guard.validate(piper, row['before_flange'], command[:2])
+        latest = checked_eef_feedback(piper)
+        previous = np.asarray(row['before_flange'])
+        if (np.any(np.linalg.norm(latest[:, :3]-previous[:, :3],axis=1) > .001)
+                or np.any((R.from_euler('xyz',latest[:,3:]) *
+                    R.from_euler('xyz',previous[:,3:]).inv()).magnitude() > .01)):
+            raise RuntimeError('Robot moved during kinematic preflight; no command sent')
+        if _check_emergency_stop():
+            raise RuntimeError('Stop requested before EEF command')
+        joints = np.asarray([row['kinematic_preflight'][name]['target_joints']
+                             for name in ('left','right')],float)
+        if joints.shape != (2,6) or not np.isfinite(joints).all():
+            raise RuntimeError('Invalid checked joint targets')
+        sent_at = time.time()
+        row['sent_at'] = sent_at
+        row['sent'] = True  # A two-arm send may partially succeed before raising.
+        row['target_joints'] = joints.tolist()
+        if hold_grippers:
+            piper.robot_l.move_j(joints[0].tolist())
+            piper.robot_r.move_j(joints[1].tolist())
+        else:
+            row['gripper_commands'] = 2
+            piper.send_joints_with_gripper(joints[0].tolist(),joints[1].tolist(),*command[2:])
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if _check_emergency_stop():
+                raise RuntimeError('Stop requested while awaiting EEF target')
+            actual = checked_eef_feedback(piper, after=sent_at)
+            if actual is not None:
+                joint_samples=[arm.get_joint_angles() for arm in (piper.robot_l,piper.robot_r)]
+                if any(s is None or not -.1 <= time.time()-s.timestamp <= .5 for s in joint_samples):
+                    raise RuntimeError('Missing/stale joints during planned motion')
+                actual_q=np.asarray([s.msg for s in joint_samples],float)
+                if actual_q.shape!=(2,6) or not np.isfinite(actual_q).all():
+                    raise RuntimeError('Invalid joints during planned motion')
+                starts=np.asarray([row['kinematic_preflight'][name]['joint_path'][0]
+                                   for name in ('left','right')])
+                if np.any(actual_q < np.minimum(starts,joints)-.02) or np.any(actual_q > np.maximum(starts,joints)+.02):
+                    raise RuntimeError('Joint feedback left checked motion corridor')
+                joint_error=np.max(np.abs(actual_q-joints),axis=1)
+                row.update(actual_joints=actual_q.tolist(),joint_error_rad=joint_error.tolist())
+                row['actual_flange'] = actual.tolist()
+                target = np.asarray(command[:2])
+                distance = np.linalg.norm(actual[:, :3]-target[:, :3], axis=1)
+                angle = (R.from_euler('xyz', actual[:, 3:]) *
+                         R.from_euler('xyz', target[:, 3:]).inv()).magnitude()
+                row.update(position_error_m=distance.tolist(), rotation_error_rad=angle.tolist())
+                if (np.all(distance <= .002) and np.all(angle <= .02)
+                        and np.all(joint_error <= .01)
+                        and all(s.timestamp > sent_at for s in joint_samples)):
+                    row['pose_reached'] = True
+                    return
+            time.sleep(.02)
+        raise TimeoutError('EEF target not reached within timeout')
+    except BaseException as exc:
+        row['error'] = type(exc).__name__ + ': ' + str(exc)
+        if row['sent']:
+            # Stop without the legacy emergency_stop wrapper's automatic reset.
+            for arm in (piper.robot_l, piper.robot_r):
+                try:
+                    arm.electronic_emergency_stop()
+                except Exception as stop_error:
+                    row.setdefault('stop_errors', []).append(str(stop_error))
+        raise
+    finally:
+        row['completed_at'] = time.time()
+        with Path(record_path).open('a') as stream:
+            stream.write(json.dumps(row) + '\n')
+
+
 def measured_eef_action(piper, initial, transform, tcp_offset):
     actual = eef_initial(piper, transform, tcp_offset)
     for i, gripper in ((0, piper.gripper_l), (8, piper.gripper_r)):
@@ -592,9 +741,12 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
     t0 = time.time()
     print("  → 重置 Server...")
     metadata = client.get_server_metadata() or {}
+    if cfg.max_chunks > 1 and not metadata.get('executed_action_history'):
+        raise RuntimeError('Continuous execution requires server executed_action_history support; no actions sent')
     if "icl_ids" in metadata:
         if cfg.icl_id not in metadata["icl_ids"]:
             raise ValueError("Unknown demonstration: " + cfg.icl_id)
+    if cfg.icl_id:
         client.infer({"reset": True, "prompt": prompt, "use_icl": True,
                       "icl_id": cfg.icl_id})
     else:
@@ -651,10 +803,10 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
             if action.shape != (16, 2, 16):
                 raise ValueError(f"Expected Zero-WAM EEF shape (16,2,16), got {action.shape}")
             if mode == "cpv":
-                raise ValueError("16D EEF uses MOVE_P; launch with --control_mode movej or movejs")
+                raise ValueError("16D EEF uses checked IK / MOVE_J; launch with --control_mode movej or movejs")
             executed = np.zeros_like(action)
             key_frames = []
-            print("[EEF] 16D relative EEF -> absolute flange -> MOVE_P (joint smoothing bypassed)")
+            print("[EEF] 16D relative EEF -> flange -> checked local IK -> MOVE_J")
             np.save(logger.save_dir / f"eef_prediction_{chunk_idx:03d}.npy", action)
             for frame_idx in range(1 if first else 0, action.shape[1]):
                 for sample_idx in range(action.shape[2]):
@@ -664,16 +816,33 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
                         raise RuntimeError("EEF prediction older than 60 seconds")
                     step_start = time.monotonic()
                     command = relative_eef_to_piper(action[:,frame_idx,sample_idx], init_eef, eef_transform, cfg.tcp_offset)
-                    piper.send_end_pose_with_gripper(*command)
+                    if getattr(cfg, 'eef_step_limit', 0) or getattr(cfg, 'eef_rotation_limit', 0):
+                        command = limit_eef_command(command, checked_eef_feedback(piper),
+                            cfg.eef_step_limit, cfg.eef_rotation_limit)
+                    send_eef_checked(piper, command, logger.save_dir / 'eef_commands.jsonl',
+                                     hold_grippers=getattr(cfg, 'hold_grippers', False))
                     total_steps += 1
                     time.sleep(max(0, action_dt-(time.monotonic()-step_start)))
+                    if (getattr(cfg, 'hold_grippers', False)
+                            and 0 < getattr(cfg, 'max_eef_actions', 0) <= total_steps):
+                        # An arm-only terminal probe needs no gripper telemetry/history.
+                        np.save(logger.save_dir / 'eef_final_flange.npy', checked_eef_feedback(piper))
+                        print(f"[EEF] reached_step={total_steps}; arm-only probe complete", flush=True)
+                        return total_steps
                     executed[:,frame_idx,sample_idx] = measured_eef_action(piper, init_eef, eef_transform, cfg.tcp_offset)
                     if (sample_idx+1) % 4 == 0:
                         cams = camera.get_frames()
                         obs = format_obs(*cams, piper.get_joint_angles(), prompt)
                         key_frames.append(obs)
                         cv2.imwrite(str(logger.save_dir/f"eef_observation_{total_steps:04d}.jpg"), np.hstack(cams))
-                    print(f"[EEF] step={total_steps} L={command[0][:3]} R={command[1][:3]}",flush=True)
+                    print(f"[EEF] reached_step={total_steps} L={command[0][:3]} R={command[1][:3]}",flush=True)
+                    if 0 < getattr(cfg, 'max_eef_actions', 0) <= total_steps:
+                        # Save only real samples; a partial chunk must not enter KV history.
+                        completed = executed[:, 1 if first else 0:frame_idx+1, :]
+                        completed = completed.reshape(16, -1)[:, :
+                            (frame_idx-(1 if first else 0))*action.shape[2]+sample_idx+1]
+                        np.save(logger.save_dir / f"eef_measured_partial_{chunk_idx:03d}.npy", completed)
+                        return total_steps
             np.save(logger.save_dir / f"eef_measured_{chunk_idx:03d}.npy", executed)
             if chunk_idx + 1 < cfg.max_chunks:
                 if not metadata.get("executed_action_history"):
@@ -827,7 +996,21 @@ def parse_args():
     parser.add_argument("--server-port", type=int, default=39056)
     parser.add_argument("--no_transform", action="store_true")
     parser.add_argument("--tcp_offset", type=float, default=0.0)
+    parser.add_argument("--firmware-version", default="v188",
+                        choices=["default", "v183", "v188"],
+                        help="SDK profile; this site's S-V1.8-8 arms use v188")
+    parser.add_argument("--max-eef-actions", type=int, default=0,
+                        help="Stop after this many confirmed EEF arrivals; 0 completes chunks")
+    parser.add_argument("--eef-step-limit", type=float, default=0.0,
+                        help="Explicit per-action flange translation limit in meters; 0 disables")
+    parser.add_argument("--eef-rotation-limit", type=float, default=0.0,
+                        help="Explicit per-action flange rotation limit in radians; 0 disables")
+    parser.add_argument("--hold-grippers", action="store_true")
     cli = parser.parse_args()
+    if cli.max_eef_actions < 0:
+        parser.error("--max-eef-actions must be non-negative")
+    if any(not np.isfinite(x) or x < 0 for x in (cli.eef_step_limit, cli.eef_rotation_limit)):
+        parser.error("EEF limits must be finite and non-negative")
 
     cls = CONFIG_MAP[cli.control_mode]
     if cli.control_mode in ("movej", "movejs"):
@@ -839,6 +1022,10 @@ def parse_args():
     cfg.icl_id = cli.icl_id
     cfg.server_host, cfg.server_port = cli.server_host, cli.server_port
     cfg.no_transform, cfg.tcp_offset = cli.no_transform, cli.tcp_offset
+    cfg.firmware_version = cli.firmware_version
+    cfg.max_eef_actions = cli.max_eef_actions
+    cfg.eef_step_limit, cfg.eef_rotation_limit = cli.eef_step_limit, cli.eef_rotation_limit
+    cfg.hold_grippers = cli.hold_grippers
     return cfg
 
 

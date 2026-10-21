@@ -1,0 +1,20 @@
+# Client 端依赖
+# 安装方式: pip install -r requirements_client.txt
+
+# 核心依赖
+numpy>=1.24.0
+scipy>=1.10.0
+opencv-python>=4.8.0
+
+# 网络通信
+websockets>=12.0
+msgpack>=1.0.0
+msgpack-numpy>=0.4.8
+websocket-client>=1.6.0
+
+# 机械臂控制 (pyAgxArm)
+# 注意: pyAgxArm 需要从源码安装
+# cd /path/to/pyAgxArm && pip install -e .
+
+# 可选 (如果需要保存推理日志为视频)
+imageio>=2.31.0

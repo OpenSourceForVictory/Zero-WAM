@@ -232,11 +232,11 @@ standalone replacement for those installed hardware dependencies.
 
 The new branch accepts `(16, 2, 16)`, skips the initial conditioning frame on the
 first chunk, reconstructs EEF actions relative to episode-start poses, converts
-quaternions to xyz Euler radians, and invokes `send_end_pose_with_gripper` /
-MOVE_P. Normalized model gripper openings are converted to meters using the
+quaternions to xyz Euler radians, and solves local IK before sending MOVE_J
+joint targets. Normalized model gripper openings are converted to meters using the
 existing controller's 0.08 m range. Joint smoothing is bypassed. The original
 14/28D joint branches remain. `--control_mode movejs` preserves the familiar
-startup/speed defaults, but **16D commands themselves are MOVE_P, not MOVE_JS**.
+startup/speed defaults, but **16D commands themselves are checked-IK MOVE_J, not MOVE_JS**.
 
 ICL reset is sent explicitly in this file, so it does not depend on the previous
 `va_client.reset` modification. Before another chunk, real measured EEF/gripper
@@ -275,3 +275,305 @@ site source; do not interpret a missing exception as a successful physical task.
 ```bash
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/test_piper_merged_eef.py
 ```
+
+
+### EEF controller rejection and arrival checks
+
+`piper_kinematic_guard.py` reads actual limits from BOTH controllers and uses the
+installed SDK's Piper MDH. Before enabling, it rejects starts within 0.01 rad of
+a joint boundary or with normalized Jacobian minimum singular value below 0.015.
+Before sending either arm, it checks FK against flange feedback, solves nearby
+IK along 1 mm / 0.01 rad Cartesian samples, limits total joint change to 0.05 rad,
+and checks the joint-linear path for boundaries and singularities. Local plans
+larger than 20 mm / 0.1 rad are rejected. These are commissioning thresholds, not
+manufacturer-certified operating limits.
+
+The selected joint endpoint is sent with MOVE_J, so MOVE_P cannot select a
+different IK branch. Feedback must remain in the checked joint interval (0.02 rad
+tolerance), and both joint and flange arrival must be confirmed. The raw model
+prediction, IK plan, commanded joints and measured result remain inspectable.
+Scene collision checking and verified velocity/acceleration/stopping behavior
+are still absent; the gate must not be treated as a commissioned motion planner.
+No physical test of the new joint execution path has been performed.
+
+#### Offline action-contract audit (2026-10-08)
+
+Replaying the recorded 20:42:55 prediction reproduces both logged limited flange
+targets to numerical precision. Its first executed-frame sample requests roughly
+279 mm left / 220 mm right relative to episode start, before limiting. These are
+requested offsets, not measured travel. The scalar-first/scalar-last boundary
+still needs resolution: the inspected RoboTwin `Robot._trans_endpose()` returns
+world positions and `transforms3d.mat2quat()` (wxyz), while Zero-WAM's simulation
+`add_eef_pose()` feeds these arrays directly to SciPy's default xyzw operations.
+The PiPER entry instead constructs a physical xyzw quaternion from flange Euler
+angles. Matching the numeric addition/multiplication formulas does not establish
+matching physical semantics. With an identity physical start and a model z+10°
+delta, these two paths yield physical x−10° and z+10° respectively. Training
+export conventions for the deployed checkpoint have not been verified; do not
+blindly swap output quaternion elements to compensate.
+
+The inspected RoboTwin `aloha-agilex` asset references an ARX5 URDF and applies
+`global_trans_matrix=diag(1,-1,-1)` to its end-link orientation. Its pose getter
+uses `gripper_bias - 0.12 = 0` positional offset. These asset definitions do not
+establish a PiPER flange-to-policy-EEF calibration. The current no-transform,
+zero-TCP configuration remains an unverified physical frame assumption.
+
+Offline checks reject the recorded starts at joint boundaries. A hypothetical
+interior start can pass the limited first-step IK check for both arms, while
+other interior starts fail the local joint-step budget. This does not certify
+any starting pose, collision clearance, or the full unmodified prediction.
+Artifacts and a reproduction script are in
+`results/real-aloha/action-contract-20261008/`; run `reproduce.py` from the project
+root. No server changes or robot motion were made during this audit.
+
+Continuous execution (`--max_chunks > 1`) requires the server metadata to declare
+`executed_action_history`; otherwise the client rejects before reset/inference.
+The inspected Ascend service does not declare this capability. Its code and
+running process are left unchanged. Single-chunk commissioning can use
+`--max_chunks 1 --max-eef-actions 1`; this does not establish continuous task
+execution, and all hardware readiness checks still apply.
+
+Read-only readiness inspection, without enabling, resetting or switching mode:
+
+```bash
+python -m evaluation.real_aloha.piper_preflight --output /tmp/piper-preflight.json
+```
+
+The inspected site's two arms report `S-V1.8-8`; the execution entry now defaults
+to `--firmware-version v188` and passes that profile to `PiperController`.
+Use `--max-eef-actions 1` for a single confirmed EEF arrival. This limits the
+number of actions, **not their distance**: inspect the predicted target before
+commissioning. Partial measured samples are saved as
+`eef_measured_partial_*.npy` and are not padded or sent to the model KV cache.
+The default `--max-eef-actions 0` retains complete-chunk execution.
+For commissioning, explicitly add `--eef-step-limit 0.004
+--eef-rotation-limit 0.025 --hold-grippers` to limit each flange target to
+4 mm / 0.025 radians from fresh feedback and send no gripper commands.
+An arm-only terminal single-step probe saves `eef_final_flange.npy` and does
+not require gripper telemetry or submit incomplete action history.
+These limits alter the requested trajectory; arrival proves a limited control
+step, not faithful full-trajectory execution or task success. Raw model chunks
+remain in `eef_prediction_*.npy`, while `eef_commands.jsonl` records the actual
+limited targets. The project client disconnects without clearing the site's
+operator stop flag.
+
+The migrated EEF path now checks fresh `get_arm_status()` and `get_flange_pose()`
+feedback before sending. After sending, it requires newer feedback to confirm
+both flange targets within 2 mm and 0.02 rad, with a 3 s timeout. Nonzero arm status,
+stale/missing feedback, a runtime stop, or timeout aborts the chunk. If a command
+was already attempted, electronic emergency stop is requested on both arms,
+without the legacy wrapper's automatic reset. Recovery must resolve the reported
+condition; the client does not clear the hardware stop latch automatically.
+
+**Electronic emergency stop is damped stopping, not position holding.** The
+[official PiPER API](https://github.com/agilexrobotics/pyAgxArm/blob/master/docs/piper/piper_api.md#electronic-emergency-stop--electronic_emergency_stop)
+states that raised joints can slowly descend under damping. `reset()` and
+`disable()` can instead cause immediate dropping. On 2026-10-08 the onsite
+operator confirmed wrist descent after the rejected commissioning command and
+later manual reset/homing. The installed v188 SDK sends `ArmMsgMotionCtrl(1)`
+for electronic stop; the project's exception path does not call reset/disable.
+This supports damped descent as the explanation for the observed post-stop
+movement, but no continuous fault-time trace exists to attribute every part of
+the displacement. An enabled-driver bit alone does not prove position holding.
+Do not remove the fault stop or replace it with an unverified holding command.
+Commissioning must account for descent clearance and a valid nonsingular start.
+
+`eef_commands.jsonl` records target, pre-send pose, send attempt, confirmed arrival,
+and errors. `reached_step` counts confirmed flange arrivals, not send calls or
+successful grasps. A send attempt may partly succeed before failing. Gripper
+contact and task success remain unverified. This adds point-by-point arrival
+waiting and can be slower than the old nominal 50 Hz streaming loop. It does not
+change target coordinates, add TCP offsets, or make unreachable predictions valid.
+
+### Explicit Piper contract and synchronized collection
+
+`profiles/piper_site_candidate.json` is a separate **candidate** Piper profile.
+It records camera topics, CAN names, firmware, feedback units, gripper range,
+base/TCP transforms and timestamp tolerances. The copied site geometry (right
+base y=-0.612 m and TCP z=0.1425 m) is **not calibrated by this change**.
+Its new contract uses physical xyzw relative rotations and episode-initial
+positions. It is not the legacy `robotwin_eval` quaternion interpretation.
+Do not feed actions from that legacy convention into this profile unchanged.
+
+Read-only recording on the industrial PC, from the project root:
+
+```bash
+source /opt/ros/noetic/setup.bash
+LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libffi.so.7 \
+/home/agilex/miniconda3/envs/piper_new/bin/python -m evaluation.real_aloha.piper_capture \
+  --profile evaluation/real_aloha/profiles/piper_site_candidate.json \
+  --output /home/agilex/zero-wam-readonly/piper-session-001 --seconds 10
+```
+
+This subscribes to ROS and reads SDK feedback directly; it never constructs the
+site's enabling `PiperController`, enables drivers, resets, homes, changes mode,
+or sends targets. It requires working ROS cameras and configured CAN interfaces.
+It preserves original RGB PNGs and all three ROS header timestamps, plus each
+arm's flange, joint, gripper and status feedback timestamps. Every accepted
+sample must be fresh, have bounded cross-source timestamp skew, and advance all
+source timestamps. This is software timestamp alignment, not a hardware trigger.
+A failed or interrupted capture preserves `capture.json` and any partial samples.
+An existing output directory is rejected to prevent mixing recordings.
+The `LD_PRELOAD` above matches this industrial PC's interactive shell setup:
+noninteractive SSH otherwise fails during CvBridge conversion with a
+`ffi_type_pointer` symbol error. This path is specific to that PC.
+
+To record control targets during separately operated/authorized control, also
+pass `--command-log /path/to/eef_commands.jsonl`. The project's
+`run_piper_eef.py` now records `sent_at` and `completed_at` without changing its
+motion behavior. Records indicate a send attempt, which may only partly succeed.
+Old logs without send timestamps are reported as incompatible; missing gripper
+targets remain missing. Measured poses are never silently promoted to command
+labels. The site's separate `real_robot_inference_zero_wam.py` has not been
+modified; its logs need the same timestamped schema before they can be joined.
+No control program is launched by the recorder.
+
+Offline audit, with no SDK/ROS dependency:
+
+```bash
+python -m evaluation.real_aloha.piper_audit /path/to/piper-session-001
+# Optionally test a deliberately selected candidate statistics file:
+python -m evaluation.real_aloha.piper_audit /path/to/piper-session-001 \
+  --stats /path/to/action_stats.json
+```
+
+The audit validates timestamps/images and the captured profile digest, then
+checks flange -> task TCP -> episode-relative EEF -> optional quantile
+normalization -> reconstruction -> flange. It reports geometric rotation error,
+not Euler-coordinate differences. `audit.json` distinguishes measured-state
+roundtrips, available command labels, post-completion feedback comparisons,
+normalization coverage and controller status. `measured_relative_actions.npy`
+contains **feedback-derived** trajectories, not issued targets. A successful
+roundtrip does not validate physical calibration, model accuracy, tracking or
+collision safety. No statistics are fitted from a stationary recording.
+
+Independent inference entry:
+
+```bash
+python -m evaluation.real_aloha.piper_server --profile /path/to/selected-profile.json --check-only
+# Once explicitly configured, launch using the existing server's other arguments:
+python -m evaluation.real_aloha.piper_server --profile /path/to/selected-profile.json --port 29056
+```
+
+The supplied candidate intentionally cannot start inference: `normalization`,
+`model_action_dt_s` and `model_actions_per_latent` are unset. A selected profile
+must specify `normalization` as `{ "path": "action_stats.json", "sha256": "...",
+"action_convention": "episode_relative_physical_xyzw" }`, plus a positive
+`model_video_fps`, `model_action_dt_s` and integer `model_actions_per_latent`.
+The entry checks `actions_per_latent * action_dt = 4 / video_fps` for the model's
+four-frame temporal VAE compression. For example, a **dataset** with 30 Hz
+actions and 15 fps videos has 8 actions/latent; that example is not a validated
+Piper deployment setting. Sampling ROS at 10 Hz for a diagnostic recording does
+not establish the model's action period. There is no implicit RoboTwin stats or
+16-step fallback. The normal production entry and running service are unchanged.
+
+Commissioning sequence: first record stationary feedback, then separately
+collect operator-controlled small translations, rotations and gripper changes
+with timestamped commands. Validate the geometry/timing against independent
+physical measurements before using such trajectories as training labels.
+As of 2026-10-09, software tests pass. The site's CAN script has verified
+`can_left/right` UP at 1 Mbps (USB 1-12 to right, 1-13 to left), and ROS cameras
+have been restored. Live collection still yielded zero accepted samples:
+arm feedback was missing, both interfaces had zero RX packets, and a separate
+three-second passive listen on each bus received no frames. Check arm power and
+physical CAN connections before retrying. This evidence does not distinguish
+power from cabling issues. No live pose/command roundtrip is claimed, and no
+robot motion commands were sent.
+
+Subsequent CAN diagnosis found both adapters present as `can0/1`, DOWN.
+Running the site's existing activation script restored `can_right/left` at
+1 Mbps; passive five-second recordings then received approximately 1000 frames
+per high-rate feedback ID per arm. Three SDK reads one second apart returned
+fresh flange, joint, gripper and status feedback on both arms (under 5 ms old),
+with NORMAL/STANDBY status and no reported joint communication faults. Interface
+TX counts remained zero. This resolves the current CAN-reading blocker; it does
+not retroactively establish why the earlier UP interfaces received no frames.
+After reboot or adapter reconnection, check the interfaces before collecting:
+
+```bash
+sudo bash /home/agilex/cobot_magic/Piper_ros_private-ros-noetic/can_multi_activate.sh
+ip -details -statistics link show type can
+```
+
+The script uses the site's fixed USB-port mapping; moving adapters to different
+USB ports requires verifying that mapping again. No automatic startup service
+was installed by this diagnosis.
+
+Read-only gripper parameter queries on 2026-10-09 found a separate mismatch:
+the installed pyAgxArm 1.0.0 reports width in metres, with firmware-configured
+maximum ranges of 0.07 m (left) and 0.10 m (right), teaching ratios both 100%.
+Measured feedback was 0.07014 m and 0.09960 m. The site's controller clamps
+outgoing gripper commands to 0.08 m for both arms; this software cap is not a
+measurement of either gripper's physical full opening. In particular, a
+0.09960 m right-arm reading does not imply a metre/millimetre conversion bug.
+Firmware parameters alone do not establish physical opening or zero calibration.
+The candidate profile and motion limits remain unchanged pending physical
+verification; do not normalize by the old shared 0.08 m value or silently clip
+the left feedback's 0.14 mm excess over its firmware-configured range.
+The successful 51-sample stationary capture is
+`/home/agilex/zero-wam-readonly/piper-contract-capture-20261009-e` on the PC;
+its full audit fails explicitly on the gripper range mismatch.
+
+### RoboCOIN Split ALOHA dataset inference
+
+`python -m evaluation.real_aloha.aloha_dataset_server` explicitly selects the
+`agilex_cobot_decoupled_magic` dataset profile in `wan_va/configs/va_aloha_cfg.py`.
+Set `MODEL_PATH` to the intended pretrain checkpoint before launching. It uses
+the bundled `robocoin_split_aloha.json` statistics (SHA256
+`71ebc527638378e36d5b1d15fd552fa8d97adfbfc320192942bddbce448073c5`), physical
+episode-relative EEF/xyzw actions, and absolute gripper scale labels. The selected
+sample's timing is 30 Hz actions, 15 fps video, and 8 actions per temporal latent.
+The 30-channel model layout and selected 16-channel bimanual EEF output are
+preserved. Existing model architecture/view layout comes from the tested
+three-view inference base; this profile does not certify all training settings
+or the physical robot's camera/TCP calibration.
+
+The endpoint defaults to `127.0.0.1:29058` for offline requests. It does not
+change the old service on port 29056, start a robot client, or set physical
+gripper travel/zero values. In particular, do not use this profile with a
+legacy `robotwin_eval` quaternion adapter without explicitly reconciling the
+rotation convention. Dataset statistics are not a hardware calibration.
+
+For one-chunk diagnostic recording, set `ZERO_WAM_TRACE_ROOT` before starting
+`aloha_dataset_server`, and include a unique `trace_name` in the reset request.
+The recorder preserves the selected profile, writes original observations,
+preprocessed input, demo latent, normalization, and each video/action scheduler
+step to that run directory. `completion.json` reports completed step counts;
+`denoising_trace.pt` is saved even after an inference failure. Reusing a run name
+is rejected. Intermediate noisy tensors are diagnostic data, not executable
+robot actions. An optional `diagnostic_seed` in the infer request fixes the RNG.
+Video previews require a separate VAE decode; saving tensors alone does not
+produce an MP4 automatically.
+
+An explicitly recorded reset may additionally set `diagnostic_future_path` to
+an offline NPZ containing four future RGB frames for each configured camera.
+This is an intervention experiment: the encoded future replaces the final
+video denoising result before the zero-noise cache update, and the resulting
+actions are conditioned on that supplied video. It is never enabled by default.
+`diagnostic_oracle_future` in the saved config marks these runs; the supplied
+future and injected step are saved. A repeated-current-frame future is synthetic
+stationary conditioning, not a recording of a successful task. Its decoded
+video must not be reported as model-generated future motion.
+
+### Saved mean starting posture (2026-10-10)
+
+[`profiles/robocoin_mean_start_20261010.json`](profiles/robocoin_mean_start_20261010.json)
+records the per-episode mean initial joint angles from 408 RoboCOIN Split ALOHA
+trajectories and the actual reached angles on this Piper pair. It uses degrees
+in J1–J6 order, with separate `can_left` and `can_right` entries. The posture was
+reached with onsite supervision, one arm at a time, at 1% speed, after confirming
+stable CAN/MOVE_J feedback. It preserves the grippers and does not recalibrate
+joint zero offsets. This is a reusable posture record, not an automatic startup
+command or a verified path from arbitrary current poses. Inference quality at
+this posture is assessed separately. Experiment records are under
+`results/real-aloha/mean-pose-v2-20261010/` locally and
+`/data5T/d00942093/zero-wam/Zero-WAM/outputs/mean-pose-v2-20261010/` on the server.
+
+### Held-out bread demonstrations (2026-10-12)
+
+See [BREAD_EVAL.md](BREAD_EVAL.md) for prepared original/landscape test videos,
+the explicit training-contract template, fresh observation capture, one-command
+offline prediction/video export, paired checkpoint comparison and a dedicated
+test-demo server. Training demos `bread_000/002/003/004` are excluded from the
+test registry; only `bread_test000/001` are selected. The existing hardware
+client is not launched or certified by this preparation.

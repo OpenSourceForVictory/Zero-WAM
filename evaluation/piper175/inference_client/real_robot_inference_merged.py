@@ -378,6 +378,7 @@ def run_inference(cfg):
     error = None
     total_steps = 0
     stopped = False
+    monitor = None
     software_stop_latched = False
     latch_error = None
     def latch_stop():
@@ -397,6 +398,12 @@ def run_inference(cfg):
             raise StopRequested('Runtime stop is set; clear it explicitly before starting')
         camera.start()
         piper.connect()  # Feedback only; never enables.
+        if getattr(cfg, 'monitor_file', None):
+            from inference_monitor import InferenceMonitor, hardware_probe
+            monitor = InferenceMonitor(cfg.monitor_file, Path(__file__).with_name('runtime_config.json'), lambda: hardware_probe(piper))
+            monitor.update(output=str(save_dir), mode=cfg.run_mode, prompt=cfg.prompt)
+            monitor.start()
+            logger.monitor = monitor
         state = piper.get_joint_angles()
         frames = camera.get_frames()
         metadata = None if cfg.skip_server else client.connect()
@@ -453,6 +460,8 @@ def run_inference(cfg):
               'An already accepted target may still execute; position hold is not guaranteed.', flush=True)
         raise
     finally:
+        if monitor is not None:
+            monitor.close()
         for sig, handler in previous.items():
             signal.signal(sig, handler)
         if recorder is not None:
@@ -551,6 +560,7 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
 
         # ── 发送观测，获取动作 ──
         status.phase = "infer"
+        if getattr(logger,"monitor",None):logger.monitor.update(phase="predict",chunk=chunk_idx+1)
         infer_msg = {"obs": initial_obs, "prompt": prompt}
         t_infer_start = time.time()
         ret = client.infer(infer_msg)
@@ -606,6 +616,7 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
 
         # ── 执行动作帧 ──
         status.phase = "exec"
+        if getattr(logger,"monitor",None):logger.monitor.update(phase="execute",infer_s=t_infer_s)
         t_exec_start = time.time()
         key_frame_list = []
         
@@ -635,6 +646,7 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
             send_action(piper, left_joints, right_joints, left_g, right_g, mode, first)
             total_steps += 1
             logger.sent_steps = total_steps
+            if getattr(logger,"monitor",None):logger.monitor.update(sent_steps=total_steps)
 
             # ── 关键帧处理 ──
             is_key = (step_idx in obs_indices)
@@ -652,6 +664,8 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
                     'error_deg': error_deg.tolist(), 'max_abs_error_deg': float(np.abs(error_deg).max()),
                     'wait_returned': bool(wait_ok), 'camera_timestamps': camera.timestamps.tolist(),
                     'sample_time': time.time(), 'task_success': None})
+                if getattr(logger,"monitor",None):
+                    logger.monitor.update(tracking_error_deg=float(np.abs(error_deg).max()),wait_ok=bool(wait_ok))
                 obs = format_obs(cam_h, cam_l, cam_r, ja, prompt)
                 key_frame_list.append(obs)
 
@@ -695,11 +709,13 @@ def _inference_loop(piper, camera, client, cfg, logger, smoother=None):
         t_kv_s = 0.0
         if key_frame_list:
             status.phase = "kv_cache"
+            if getattr(logger,"monitor",None):logger.monitor.update(phase="kv_update",execute_s=t_exec_s)
             print(f"    [KV缓存] 更新 {len(key_frame_list)} 帧...", end=" ", flush=True)
             t_kv = time.time()
             client.compute_kv_cache(key_frame_list, action)
             t_kv_s = time.time() - t_kv
             logger.log_kv_cache(t_kv_s)
+            if getattr(logger,"monitor",None):logger.monitor.update(kv_s=t_kv_s)
             print(f"完成 ({t_kv_s:.2f}s)")
 
         # 为下一个 chunk 准备初始观测
@@ -731,6 +747,7 @@ def parse_args():
     modes.add_argument('--shadow', action='store_const', dest='run_mode', const='shadow')
     modes.add_argument('--execute', action='store_const', dest='run_mode', const='execute')
     parser.set_defaults(run_mode='check')
+    parser.add_argument('--monitor-file', default=None, help='Opt-in read-only hardware watchdog and UI heartbeat path')
     parser.add_argument('--record-continuous', action='store_true')
     parser.add_argument('--action-contract', choices=['legacy174', 'piperpika'], default='legacy174')
     parser.add_argument('--prompt', default='breakfast')

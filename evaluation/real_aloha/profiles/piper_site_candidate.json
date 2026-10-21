@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "name": "piper_site_candidate",
+  "action_convention": "episode_relative_physical_xyzw",
+  "feedback_units": "m_rad",
+  "gripper_units": "m",
+  "task_from_base": [
+    [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        -0.612
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  ],
+  "flange_from_tcp": [
+    [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.1425
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    [
+      [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0,
+        0.1425
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  ],
+  "gripper_closed_m": [
+    0,
+    0
+  ],
+  "gripper_open_m": [
+    0.08,
+    0.08
+  ],
+  "cameras": {
+    "cam_high": "/camera_f/color/image_raw",
+    "cam_left_wrist": "/camera_l/color/image_raw",
+    "cam_right_wrist": "/camera_r/color/image_raw"
+  },
+  "can_channels": [
+    "can_left",
+    "can_right"
+  ],
+  "firmware": "v188",
+  "sample_hz": 10,
+  "max_age_s": 0.25,
+  "max_skew_s": 0.08,
+  "startup_timeout_s": 15,
+  "calibration_verified": false,
+  "normalization": null,
+  "model_action_dt_s": null,
+  "model_actions_per_latent": null,
+  "provenance": "Geometry copied from robot zero_wam_geometry.json on 2026-10-09; physical calibration unverified. New physical xyzw contract, NOT legacy robotwin_eval. No inference defaults inferred from this collection profile."
+}

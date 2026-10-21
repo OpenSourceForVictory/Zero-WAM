@@ -43,10 +43,14 @@ def task_path(root,name):
     return path
 
 
-class Console:
+from inference_console import InferenceConsole
+
+
+class Console(InferenceConsole):
     def __init__(self,data_root):
         self.root=Path(data_root).expanduser().resolve();self.root.mkdir(parents=True,exist_ok=True)
         self.logs=deque(maxlen=100);self.lock=threading.RLock();self.rpc_lock=threading.RLock();self.jobs={};self.controller=None
+        self.inference_init()
         self.record=None;self.record_lock=None;self.last_result=None;self.collection_session=None
         self.config={"task":"pika_dual_demo","prompt":"","max_frames":5000,"fps":30}
         config_file=self.root/".console_config.json"
@@ -78,17 +82,25 @@ class Console:
             recording=None if not rec else {k:rec.get(k) for k in ('id','task','phase','frames','started_at','episode','error')}
             if recording:recording['elapsed_s']=round(time.time()-rec['started_at'],1)
             return {'control':dict(self.control),'recording':recording,'jobs':dict(self.jobs),
+                    'inference':self.inference_result,
                     'relocalization':self.relocalization_status(),
                     'logs':list(self.logs),'last_result':self.last_result,'data_root':str(self.root),
                     'conversion':'legacy28','fps':(self.collection_session or self.config)['fps'],'session':self.collection_session,'config':dict(self.config)}
 
     def submit(self,action,body):
-        groups={'controller_start':'control','left':'control','right':'control','pause':'control','controller_stop':'control','relocalize':'control','enable_zero':'control',
+        groups={'inference_start':'inference','inference_stop':'inference_stop','controller_start':'control','left':'control','right':'control','pause':'control','controller_stop':'control','relocalize':'control','enable_zero':'control',
                 'session_start':'record','config_save':'record','start':'record','save':'record','discard':'record','exit':'record','delete':'record','delete_last':'record','convert':'convert'}
         if action not in groups:raise ValueError('未知操作')
         group=groups[action]
         with self.lock:
             if self.closing:raise ValueError('控制台正在退出')
+            if self.jobs.get('inference',{}).get('running') and action!='inference_stop':
+                raise ValueError('推理正在运行，请先停止推理')
+            if action=='inference_start':
+                self.validate_inference(body)
+                if self.collection_session or self.record or self.control.get('connected') or any(j.get('running') for j in self.jobs.values()):
+                    raise ValueError('请先退出采集会话和双臂控制，等待其他操作结束')
+                self.inference_cancelled=False
             if self.jobs.get(group,{}).get('running'):raise ValueError('该操作正在处理，请稍候')
             if group in ('record','convert') and self.jobs.get('convert',{}).get('running'):
                 raise ValueError('正在转换，请完成后再操作录制数据')
@@ -493,6 +505,8 @@ class Console:
         self.log('LeRobot v2.1 / 28 维转换与校验完成：'+str(output))
 
     def close(self):
+        if self.jobs.get('inference',{}).get('running'):
+            self.do_inference_stop({})
         # Finish in-flight control/record operations before closing their resources.
         with self.lock:self.closing=True;workers=list(self.workers)
         for group,worker in workers:
@@ -536,6 +550,13 @@ def make_handler(console):
                     query=parse_qs(urlsplit(self.path).query)
                     video=console.video_path(query.get('task',[''])[0],query.get('episode',[''])[0])
                     return self.send_video(video)
+                if path=='/api/inference/view':return self.send(200,console.inference_view())
+                if path in ('/api/inference/prediction','/api/inference/video'):
+                    query=parse_qs(urlsplit(self.path).query);run=query.get('run',[''])[0];index=int(query.get('chunk',['0'])[0])
+                    if not 0<=index<=100000:raise ValueError('chunk 编号无效')
+                    if path.endswith('prediction'):return self.send(200,console.inference_prediction(run,index))
+                    return self.send_video(console.inference_run_path(run)/'server_predictions'/f'chunk_{index:05d}.mp4')
+                if path=='/api/inference/demos':return self.send(200,console.inference_catalog())
                 if path=='/api/catalog':return self.send(200,console.catalog())
                 if path in ('/api/episode/detail','/api/episode/image'):
                     query=parse_qs(urlsplit(self.path).query)
@@ -560,6 +581,7 @@ def make_handler(console):
                 body=json.loads(self.rfile.read(length))
                 if not isinstance(body,dict):raise ValueError('参数无效')
                 if self.path!='/api/action':return self.send(404,{'error':'Not found'})
+                if body.get('action')=='inference_emergency':return self.send(200,console.do_inference_emergency(body))
                 console.submit(body.get('action'),body)
                 return self.send(202,{'ok':True})
             except Exception as exc:return self.send(409,{'error':str(exc)})

@@ -1,0 +1,110 @@
+{
+  "name": "robocoin_split_aloha_mean_start",
+  "description": "2026-10-10现场验证的双臂平均初始关节姿态；供后续准备姿态复用。",
+  "robot": "split ALOHA Piper",
+  "firmware_profile": "v188",
+  "joint_order": [
+    "J1",
+    "J2",
+    "J3",
+    "J4",
+    "J5",
+    "J6"
+  ],
+  "angle_unit": "degree",
+  "source": {
+    "episodes": 408,
+    "dataset": "RoboCOIN_Split_aloha",
+    "method": "arithmetic mean of first-frame joint angles; equal weight per episode"
+  },
+  "arms": {
+    "left": {
+      "can_channel": "can_left",
+      "target_joint_deg": [
+        -2.483656921606027,
+        18.604948176577818,
+        -37.341650398183134,
+        -7.733971831114651,
+        60.76234466473788,
+        4.796856193128946
+      ],
+      "measured_joint_deg": [
+        -2.489,
+        18.559,
+        -37.308,
+        -7.733000000000001,
+        60.742000000000004,
+        4.759
+      ],
+      "measured_flange_xyz_m": [
+        0.037115999999999996,
+        -0.012307,
+        0.316471
+      ],
+      "measured_flange_rpy_rad": [
+        -3.0462976764309024,
+        0.9308189966736159,
+        3.070208687183225
+      ],
+      "feedback_time_unix": 1791635874.7003214,
+      "firmware_readback": {
+        "hardware_version": "H-V1.2-1",
+        "motor_ratio_and_batch": "10",
+        "node_type": "ARM_MC",
+        "software_version": "S-V1.8-8",
+        "production_date": "260509",
+        "node_number": "15"
+      }
+    },
+    "right": {
+      "can_channel": "can_right",
+      "target_joint_deg": [
+        2.714782339756732,
+        19.20007023135742,
+        -37.31892184302154,
+        7.1791551797993405,
+        61.2866793306152,
+        -5.55061354619641
+      ],
+      "measured_joint_deg": [
+        2.6630000000000003,
+        19.177,
+        -37.28800000000001,
+        7.1770000000000005,
+        61.28900000000001,
+        -5.53
+      ],
+      "measured_flange_xyz_m": [
+        0.038724,
+        0.011784,
+        0.315176
+      ],
+      "measured_flange_rpy_rad": [
+        3.0779754023545998,
+        0.9108873366158405,
+        -3.0365412859122545
+      ],
+      "feedback_time_unix": 1791635875.554724,
+      "firmware_readback": {
+        "hardware_version": "H-V1.2-1",
+        "motor_ratio_and_batch": "10",
+        "node_type": "ARM_MC",
+        "software_version": "S-V1.8-8",
+        "production_date": "260509",
+        "node_number": "15"
+      }
+    }
+  },
+  "execution": {
+    "validated_speed_percent": 1,
+    "one_arm_at_a_time": true,
+    "requires_stable_can_move_j_feedback": true,
+    "keep_gripper_unchanged": true,
+    "no_joint_zero_calibration": true,
+    "automatic_execution": false
+  },
+  "limitations": [
+    "Pose verified on this robot on 2026-10-10; not a collision-free path from arbitrary current poses.",
+    "Model inference quality at this pose is evaluated separately."
+  ]
+}

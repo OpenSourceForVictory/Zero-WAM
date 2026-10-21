@@ -304,3 +304,29 @@ def test_zero_failure_stops_before_second_arm(tmp_path,monkeypatch):
     moves=[cmd for cmd in calls if '--execute' in cmd]
     assert len(moves)==1 and moves[0][moves[0].index('--arm')+1]=='left'
     assert calls[-1][-1]=='stop'
+
+
+def test_inference_requires_readiness_and_known_demo(console,monkeypatch):
+    monkeypatch.setattr(console,'inference_catalog',lambda:[{'video_id':'V01','latent_path':'/demo.pth'}])
+    body={'mode':'execute','ready':False,'max_chunks':1,'port':39057,'prompt':'task','video_id':'V01'}
+    with pytest.raises(ValueError,match='确认'):console.submit('inference_start',body)
+    body.update(ready=True,video_id='unknown')
+    with pytest.raises(ValueError,match='示教'):console.submit('inference_start',body)
+
+
+def test_inference_blocks_other_robot_operations_but_stop_works(console,monkeypatch):
+    console.jobs['inference']={'running':True}
+    for action in ('controller_start','enable_zero','session_start','start','relocalize'):
+        with pytest.raises(ValueError,match='推理正在运行'):console.submit(action,{})
+    called=threading.Event()
+    monkeypatch.setattr(console,'do_inference_stop',lambda body:called.set())
+    console.submit('inference_stop',{})
+    assert called.wait(1)
+
+
+def test_inference_rejects_active_collection(console,monkeypatch):
+    monkeypatch.setattr(console,'validate_inference',lambda body:{})
+    for attr,value in [('collection_session',{'task':'test'}),('control',{'connected':True}),('record',{'id':'test'})]:
+        old=getattr(console,attr);setattr(console,attr,value)
+        with pytest.raises(ValueError,match='退出采集'):console.submit('inference_start',{})
+        setattr(console,attr,old)
