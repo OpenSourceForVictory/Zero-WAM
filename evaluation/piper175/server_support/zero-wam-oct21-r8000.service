@@ -1,0 +1,17 @@
+[Unit]
+Description=Zero-WAM PiperPika Oct21 GPU inference on R8000
+Conflicts=zero-wam-rtc-model.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/huawei/Zero-WAM/releases/piperpika-20261021
+ExecStart=/bin/bash /home/huawei/Zero-WAM/releases/piperpika-20261021/start_r8000_oct21_gpu.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+StandardOutput=append:/home/huawei/Zero-WAM/outputs/server_oct21_r8000.log
+StandardError=append:/home/huawei/Zero-WAM/outputs/server_oct21_r8000.log
+
+[Install]
+WantedBy=default.target

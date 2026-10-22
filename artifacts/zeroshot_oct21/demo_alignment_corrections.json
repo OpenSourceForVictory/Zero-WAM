@@ -1,0 +1,26 @@
+{
+  "V05": {
+    "sequence": "orange -> brown tray; potato -> purple plate; mouse -> white basket",
+    "prompt": "First, place the orange toy tangerine into the dark-brown wooden tray. Next, place the brown toy potato into the light-purple plate. Finally, place the black computer mouse into the white storage basket. Complete all three placements in this order without moving unrelated objects."
+  },
+  "V08": {
+    "sequence": "mouse -> brown tray; potato -> white basket; pepper -> purple plate",
+    "prompt": "First, place the black computer mouse into the dark-brown wooden tray. Next, place the brown toy potato into the white storage basket. Finally, place the light-green pepper-shaped toy into the light-purple plate. Complete all three placements in this order without moving unrelated objects."
+  },
+  "V09": {
+    "sequence": "green leaf -> white basket; orange -> purple plate; potato -> brown tray",
+    "prompt": "First, place the green leaf-shaped toy into the white storage basket. Next, place the orange toy tangerine into the light-purple plate. Finally, place the brown toy potato into the dark-brown wooden tray. Complete all three placements in this order without moving unrelated objects."
+  },
+  "V10": {
+    "sequence": "potato -> brown tray; orange -> purple plate; green leaf -> white basket",
+    "prompt": "First, place the brown toy potato into the dark-brown wooden tray. Next, place the orange toy tangerine into the light-purple plate. Finally, place the green leaf-shaped toy into the white storage basket. Complete all three placements in this order without moving unrelated objects."
+  },
+  "V11": {
+    "sequence": "orange -> purple plate; potato -> white basket; mouse -> brown tray",
+    "prompt": "First, place the orange toy tangerine into the light-purple plate. Next, place the brown toy potato into the white storage basket. Finally, place the black computer mouse into the dark-brown wooden tray. Complete all three placements in this order without moving unrelated objects."
+  },
+  "V12": {
+    "sequence": "mouse -> brown tray; potato -> white basket; orange -> purple plate",
+    "prompt": "First, place the black computer mouse into the dark-brown wooden tray. Next, place the brown toy potato into the white storage basket. Finally, place the orange toy tangerine into the light-purple plate. Complete all three placements in this order without moving unrelated objects."
+  }
+}

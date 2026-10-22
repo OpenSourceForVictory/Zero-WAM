@@ -29,6 +29,18 @@ def test_task_paths_reject_escape(tmp_path):
     with pytest.raises(ValueError):web.task_path(tmp_path,'link')
 
 
+def test_inference_preferences_persist_without_safety_confirmation(console,monkeypatch):
+    monkeypatch.setattr(console,'inference_catalog',lambda:[{'video_id':'V01'}])
+    first={'video_id':'V01','profile':'r8000','mode':'execute','max_chunks':32,
+           'tab':'inference','updated_at':100,'ready':True,'prompt':'unchecked'}
+    saved=console.save_inference_preferences(first)
+    assert console.inference_preferences()==saved
+    assert 'ready' not in saved and 'prompt' not in saved
+    assert console.save_inference_preferences({**first,'profile':'29','updated_at':99})['profile']=='29'
+    with pytest.raises(ValueError,match='示教'):
+        console.save_inference_preferences({**first,'video_id':'missing','updated_at':101})
+
+
 def test_stale_recording_id_cannot_discard_new_take(console):
     console.record={'id':'new-take'}
     with pytest.raises(ValueError,match='状态已变化'):
@@ -265,6 +277,9 @@ def test_zero_requires_valid_selection_readiness_and_idle_record(console):
         console.submit('enable_zero',{'arm':'invalid','ready':True})
     with pytest.raises(ValueError,match='清空'):
         console.submit('enable_zero',{'arm':'both'})
+    for invalid in (0,7,5.0,True):
+        with pytest.raises(ValueError,match='速度'):
+            console.submit('enable_zero',{'arm':'both','ready':True,'speed_percent':invalid})
     console.record={'id':'active'}
     with pytest.raises(ValueError,match='录制'):
         console.submit('enable_zero',{'arm':'both','ready':True})
@@ -294,7 +309,7 @@ def test_zero_failure_stops_before_second_arm(tmp_path,monkeypatch):
     monkeypatch.setattr(zero,'RUNTIME',tmp_path)
     monkeypatch.setattr(zero,'controllers',lambda:[])
     monkeypatch.setattr(zero,'check_arm',lambda side:None)
-    monkeypatch.setattr(sys,'argv',['enable_zero.py','--arm','both'])
+    monkeypatch.setattr(sys,'argv',['enable_zero.py','--arm','both','--speed-percent','5'])
     calls=[]
     def run(cmd,**kwargs):
         calls.append(cmd)
@@ -303,6 +318,7 @@ def test_zero_failure_stops_before_second_arm(tmp_path,monkeypatch):
     with pytest.raises(subprocess.CalledProcessError):zero.main()
     moves=[cmd for cmd in calls if '--execute' in cmd]
     assert len(moves)==1 and moves[0][moves[0].index('--arm')+1]=='left'
+    assert moves[0][moves[0].index('--speed-percent')+1]=='5'
     assert calls[-1][-1]=='stop'
 
 

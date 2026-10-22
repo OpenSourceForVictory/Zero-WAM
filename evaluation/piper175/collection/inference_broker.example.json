@@ -1,0 +1,109 @@
+{
+  "bind": "192.168.137.71",
+  "port": 8092,
+  "token": "REPLACE_WITH_RANDOM_TOKEN",
+  "state_dir": "/home/USER/.local/share/piper-inference",
+  "archive_root": "/mnt/sfs_turbo/lijianwen/Tests/real_aloha_test",
+  "default_target": "/mnt/sfs_turbo/lijianwen/Tests/real_aloha_test/R8000_261021_v4a10",
+  "ipc_log_root": "/home/piperpika/piper_runtime/inference_client/inference_logs",
+  "demos": [
+    {
+      "video_id": "V01",
+      "dimension": "Order reversal",
+      "pair": "PAIR-A",
+      "layout": "VAL-L01",
+      "prompt": "First, place the orange toy tangerine into the light-purple plate. Next, place the brown toy potato into the white storage basket. Finally, place the black computer mouse into the dark-brown wooden tray. Complete all three placements in this order without moving unrelated objects.",
+      "human_video": "pika_aloha_10_20_human_verify/human_video/episode_20261020_202638_410615688/video.mp4",
+      "mapping_status": "confirmed_by_user_V01_to_V12_order",
+      "robot_episode": "not_provided",
+      "split": "held_out_human_only",
+      "server_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_20/pika_aloha_10_20_human_verify/human_video/episode_20261020_202638_410615688/video.mp4",
+      "latent_path": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/zeroshot_long_oct21/V01.pth",
+      "sampled_frames": 85,
+      "video_frames": 218,
+      "fps": 30.0
+    }
+  ],
+  "hosts": {
+    "29": {
+      "ssh": [
+        "ssh",
+        "-i",
+        "/path/to/29_ssh_key",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "root@1.95.69.29"
+      ],
+      "address": "root@1.95.69.29"
+    },
+    "ipc": {
+      "ssh": [
+        "ssh",
+        "-i",
+        "/path/to/ipc_ssh_key",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "piperpika@192.168.137.54"
+      ],
+      "address": "piperpika@192.168.137.54"
+    },
+    "r8000": {
+      "ssh": [
+        "ssh",
+        "-i",
+        "/path/to/r8000_ssh_key",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "huawei@192.168.137.223"
+      ],
+      "address": "huawei@192.168.137.223"
+    }
+  },
+  "profiles": {
+    "29": {
+      "id": "29",
+      "label": "29 · 10/21 新权重 · video 4 / action 10",
+      "client_host": "127.0.0.1",
+      "client_port": 39057,
+      "server_port": 29056,
+      "trace_root": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/prediction_traces",
+      "code": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM",
+      "python": "/mnt/sfs_turbo/public/apps/miniforge3/envs/lingbot-vggt/bin/python",
+      "decode_device": "npu:0",
+      "decode_env": {
+        "LD_LIBRARY_PATH": "/usr/local/lib64:/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/cann-8.5.2/lib64:/usr/local/Ascend/cann-8.5.2/lib64/plugin/opskernel:/usr/local/Ascend/cann-8.5.2/lib64/plugin/nnengine:/usr/local/Ascend/cann-8.5.2/opp/built-in/op_impl/ai_core/tbe/op_tiling/lib/linux/aarch64:/usr/local/Ascend/cann-8.5.2/tools/aml/lib64:/usr/local/Ascend/cann-8.5.2/tools/aml/lib64/plugin:/usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/driver/lib64/driver",
+        "PYTHONPATH": "/usr/local/Ascend/cann-8.5.2/python/site-packages:/usr/local/Ascend/cann-8.5.2/opp/built-in/op_impl/ai_core/tbe:",
+        "ASCEND_HOME_PATH": "/usr/local/Ascend/cann-8.5.2",
+        "ASCEND_TOOLKIT_HOME": "/usr/local/Ascend/cann-8.5.2",
+        "ASCEND_OPP_PATH": "/usr/local/Ascend/cann-8.5.2/opp",
+        "ASCEND_AICPU_PATH": "/usr/local/Ascend/cann-8.5.2",
+        "ASCEND_RT_VISIBLE_DEVICES": "0",
+        "OMP_NUM_THREADS": "4"
+      }
+    },
+    "r8000": {
+      "id": "r8000",
+      "label": "R8000 · 10/21 新权重 · video 4 / action 10",
+      "client_host": "192.168.137.223",
+      "client_port": 29056,
+      "server_port": 29056,
+      "trace_root": "/home/huawei/Zero-WAM/outputs/piperpika_prediction_traces",
+      "code": "/home/huawei/Zero-WAM/releases/piperpika-20261021",
+      "python": "/home/huawei/.venvs/zero-wam/bin/python",
+      "decode_device": "cuda:0",
+      "decoder_script": "/home/huawei/Zero-WAM/tools/prediction_decoder/decode_predictions.py",
+      "local_checkpoint": "/home/USER/models/piperpika_20261021",
+      "local_checkpoint_sha256": "REPLACE_WITH_LOCAL_VAE_SAFETENSORS_SHA256",
+      "local_python": "/path/to/cuda/python",
+      "local_decoder_script": "/path/to/Zero-WAM/evaluation/piper175/prediction_decoder/decode_predictions.py",
+      "demo_root": "/home/huawei/Zero-WAM/outputs/ui_human_demos",
+      "export_root": "/home/huawei/Zero-WAM/outputs/ui_exports"
+    }
+  }
+}

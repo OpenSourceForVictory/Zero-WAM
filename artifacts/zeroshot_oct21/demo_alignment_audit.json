@@ -1,0 +1,50 @@
+[
+  {
+    "video_id": "V05",
+    "server_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_20/pika_aloha_10_20_human_verify/human_video/episode_20261020_202900_620649231/video.mp4",
+    "old_prompt": "First, place the orange toy tangerine into the light-purple plate. Next, place the brown toy potato into the white storage basket. Finally, place the black computer mouse into the dark-brown wooden tray. Complete all three placements in this order without moving unrelated objects.",
+    "corrected_prompt": "First, place the orange toy tangerine into the dark-brown wooden tray. Next, place the brown toy potato into the light-purple plate. Finally, place the black computer mouse into the white storage basket. Complete all three placements in this order without moving unrelated objects.",
+    "observed_sequence": "orange -> brown tray; potato -> purple plate; mouse -> white basket",
+    "old_latent_path": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/zeroshot_long_oct21/V05.pth"
+  },
+  {
+    "video_id": "V08",
+    "server_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_20/pika_aloha_10_20_human_verify/human_video/episode_20261020_203040_199068641/video.mp4",
+    "old_prompt": "First, place the black computer mouse into the dark-brown wooden tray. Next, place the light-green pepper-shaped toy into the light-purple plate. Finally, place the brown toy potato into the white storage basket. Complete all three placements in this order without moving unrelated objects.",
+    "corrected_prompt": "First, place the black computer mouse into the dark-brown wooden tray. Next, place the brown toy potato into the white storage basket. Finally, place the light-green pepper-shaped toy into the light-purple plate. Complete all three placements in this order without moving unrelated objects.",
+    "observed_sequence": "mouse -> brown tray; potato -> white basket; pepper -> purple plate",
+    "old_latent_path": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/zeroshot_long_oct21/V08.pth"
+  },
+  {
+    "video_id": "V09",
+    "server_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_20/pika_aloha_10_20_human_verify/human_video/episode_20261020_203122_503645664/video.mp4",
+    "old_prompt": "First, place the green leaf-shaped toy into the white storage basket. Next, place the orange toy tangerine into the light-purple plate. Finally, place the dark-gray cylindrical cup into the dark-brown wooden tray. Complete all three placements in this order without moving unrelated objects.",
+    "corrected_prompt": "First, place the green leaf-shaped toy into the white storage basket. Next, place the orange toy tangerine into the light-purple plate. Finally, place the brown toy potato into the dark-brown wooden tray. Complete all three placements in this order without moving unrelated objects.",
+    "observed_sequence": "green leaf -> white basket; orange -> purple plate; potato -> brown tray",
+    "old_latent_path": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/zeroshot_long_oct21/V09.pth"
+  },
+  {
+    "video_id": "V10",
+    "server_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_20/pika_aloha_10_20_human_verify/human_video/episode_20261020_203150_766939630/video.mp4",
+    "old_prompt": "First, place the dark-gray cylindrical cup into the dark-brown wooden tray. Next, place the green leaf-shaped toy into the white storage basket. Finally, place the orange toy tangerine into the light-purple plate. Complete all three placements in this order without moving unrelated objects.",
+    "corrected_prompt": "First, place the brown toy potato into the dark-brown wooden tray. Next, place the orange toy tangerine into the light-purple plate. Finally, place the green leaf-shaped toy into the white storage basket. Complete all three placements in this order without moving unrelated objects.",
+    "observed_sequence": "potato -> brown tray; orange -> purple plate; green leaf -> white basket",
+    "old_latent_path": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/zeroshot_long_oct21/V10.pth"
+  },
+  {
+    "video_id": "V11",
+    "server_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_20/pika_aloha_10_20_human_verify/human_video/episode_20261020_203233_885175396/video.mp4",
+    "old_prompt": "First, place the orange toy tangerine into the light-purple plate. Next, place the black computer mouse into the dark-brown wooden tray. Finally, place the brown toy potato into the white storage basket. Complete all three placements in this order without moving unrelated objects.",
+    "corrected_prompt": "First, place the orange toy tangerine into the light-purple plate. Next, place the brown toy potato into the white storage basket. Finally, place the black computer mouse into the dark-brown wooden tray. Complete all three placements in this order without moving unrelated objects.",
+    "observed_sequence": "orange -> purple plate; potato -> white basket; mouse -> brown tray",
+    "old_latent_path": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/zeroshot_long_oct21/V11.pth"
+  },
+  {
+    "video_id": "V12",
+    "server_video": "/mnt/sfs_turbo/lijianwen/Datasets/piperpika_10_20/pika_aloha_10_20_human_verify/human_video/episode_20261020_203300_37214077/video.mp4",
+    "old_prompt": "First, place the brown toy potato into the white storage basket. Next, place the black computer mouse into the dark-brown wooden tray. Finally, place the orange toy tangerine into the light-purple plate. Complete all three placements in this order without moving unrelated objects.",
+    "corrected_prompt": "First, place the black computer mouse into the dark-brown wooden tray. Next, place the brown toy potato into the white storage basket. Finally, place the orange toy tangerine into the light-purple plate. Complete all three placements in this order without moving unrelated objects.",
+    "observed_sequence": "mouse -> brown tray; potato -> white basket; orange -> purple plate",
+    "old_latent_path": "/mnt/sfs_turbo/lijianwen/Codes/Zero-WAM/outputs/zeroshot_long_oct21/V12.pth"
+  }
+]

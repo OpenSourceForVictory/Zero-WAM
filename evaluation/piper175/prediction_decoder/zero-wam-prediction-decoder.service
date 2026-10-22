@@ -1,0 +1,19 @@
+[Unit]
+Description=Zero-WAM saved prediction video decoder (CPU FP32)
+
+[Service]
+Type=simple
+EnvironmentFile=/home/huawei/Zero-WAM/tools/prediction_decoder/decoder.env
+ExecStart=/bin/bash /home/huawei/Zero-WAM/tools/prediction_decoder/start_prediction_decoder_cpu.sh
+Restart=on-failure
+RestartSec=10
+Nice=10
+CPUQuota=400%
+MemoryHigh=12G
+MemoryMax=20G
+TimeoutStopSec=120
+StandardOutput=append:/home/huawei/Zero-WAM/outputs/prediction_decoder_cpu.log
+StandardError=append:/home/huawei/Zero-WAM/outputs/prediction_decoder_cpu.log
+
+[Install]
+WantedBy=default.target

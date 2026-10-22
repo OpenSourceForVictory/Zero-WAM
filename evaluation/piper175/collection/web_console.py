@@ -22,6 +22,21 @@ ROOT=Path(__file__).resolve().parent
 CAMERAS={'left':'CC1C810002Y','high':'CC1C8100041','right':'CC1C8100015'}
 
 
+def video_byte_range(header, size):
+    if not header:return None
+    match=re.fullmatch(r'bytes=(\d*)-(\d*)',header.strip())
+    if not match or not any(match.groups()) or size<=0:raise ValueError('Invalid video range')
+    first,last=match.groups()
+    if first:
+        start=int(first);end=min(int(last),size-1) if last else size-1
+    else:
+        suffix=int(last)
+        if suffix<=0:raise ValueError('Invalid video range')
+        start=max(0,size-suffix);end=size-1
+    if start>=size or end<start:raise ValueError('Invalid video range')
+    return start,end
+
+
 def rpc(command, timeout=45):
     with socket.socket(socket.AF_UNIX) as sock:
         sock.settimeout(timeout);sock.connect(str(ROOT/'.switch.sock'))
@@ -87,14 +102,36 @@ class Console(InferenceConsole):
                     'logs':list(self.logs),'last_result':self.last_result,'data_root':str(self.root),
                     'conversion':'legacy28','fps':(self.collection_session or self.config)['fps'],'session':self.collection_session,'config':dict(self.config)}
 
+    def inference_preferences(self):
+        path=self.root/'.inference_ui_preferences.json'
+        with self.lock:
+            try:return json.loads(path.read_text())
+            except (OSError,ValueError):return {}
+
+    def save_inference_preferences(self,body):
+        if not isinstance(body.get('video_id'),str) or body['video_id'] not in ('',*[row['video_id'] for row in self.inference_catalog()]):
+            raise ValueError('示教选择无效')
+        if body.get('profile') not in ('29','r8000'):raise ValueError('推理服务器无效')
+        if body.get('mode') not in ('check','shadow','execute'):raise ValueError('运行模式无效')
+        if type(body.get('max_chunks')) is not int or not 0<=body['max_chunks']<=10000:raise ValueError('chunk 数无效')
+        if body.get('tab') not in ('data','control','robot','inference'):raise ValueError('页签无效')
+        values={k:body[k] for k in ('video_id','profile','mode','max_chunks','tab')}
+        values['updated_at']=int(time.time()*1000)
+        path=self.root/'.inference_ui_preferences.json'
+        with self.lock:
+            temp=path.with_suffix('.tmp')
+            temp.write_text(json.dumps(values,ensure_ascii=False))
+            temp.replace(path)
+        return values
+
     def submit(self,action,body):
-        groups={'inference_start':'inference','inference_stop':'inference_stop','controller_start':'control','left':'control','right':'control','pause':'control','controller_stop':'control','relocalize':'control','enable_zero':'control',
+        groups={'inference_archive':'archive','inference_start':'inference','inference_stop':'inference_stop','controller_start':'control','left':'control','right':'control','pause':'control','controller_stop':'control','relocalize':'control','enable_zero':'control',
                 'session_start':'record','config_save':'record','start':'record','save':'record','discard':'record','exit':'record','delete':'record','delete_last':'record','convert':'convert'}
         if action not in groups:raise ValueError('未知操作')
         group=groups[action]
         with self.lock:
             if self.closing:raise ValueError('控制台正在退出')
-            if self.jobs.get('inference',{}).get('running') and action!='inference_stop':
+            if self.jobs.get('inference',{}).get('running') and action not in ('inference_stop','inference_archive'):
                 raise ValueError('推理正在运行，请先停止推理')
             if action=='inference_start':
                 self.validate_inference(body)
@@ -111,6 +148,8 @@ class Console(InferenceConsole):
             if action=='enable_zero':
                 if body.get('arm') not in ('left','right','both'):raise ValueError('归零机械臂选择无效')
                 if body.get('ready') is not True:raise ValueError('请确认双臂运动范围已清空')
+                if type(body.get('speed_percent',1)) is not int or body.get('speed_percent',1) not in range(1,7):
+                    raise ValueError('归零速度须为 1%–6%')
                 if self.record or self.jobs.get('record',{}).get('running'):raise ValueError('请先结束当前录制，再归零')
             if action=='relocalize':
                 if self.record or self.jobs.get('record',{}).get('running'):
@@ -155,10 +194,11 @@ class Console(InferenceConsole):
         if self.record:raise ValueError('请先结束当前录制')
         logfile=ROOT/'acceptance'/('web_zero_'+time.strftime('%Y%m%d_%H%M%S')+'.log')
         logfile.parent.mkdir(exist_ok=True)
-        self.log('开始使能归零：'+body['arm']+'；日志：'+str(logfile))
+        speed=body.get('speed_percent',1)
+        self.log('开始使能归零：'+body['arm']+'，速度 '+str(speed)+'%；日志：'+str(logfile))
         with logfile.open('w') as log:
             proc=subprocess.Popen(['bash',str(ROOT.parent/'run.sh'),str(ROOT/'enable_zero.py'),
-                                   '--arm',body['arm']],cwd=ROOT.parent,stdout=subprocess.PIPE,
+                                   '--arm',body['arm'],'--speed-percent',str(speed)],cwd=ROOT.parent,stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT,text=True,bufsize=1)
             for line in proc.stdout:
                 log.write(line);log.flush()
@@ -530,14 +570,31 @@ def make_handler(console):
             self.send_header('X-Frame-Options','DENY');self.end_headers()
             try:self.wfile.write(body)
             except (BrokenPipeError,ConnectionResetError):pass
-        def send_video(self,path):
+        def send_video(self,path,browser_cache=False):
             with path.open('rb') as stream:
-                self.send_response(200)
+                size=os.fstat(stream.fileno()).st_size
+                try:selection=video_byte_range(self.headers.get('Range'),size)
+                except ValueError:
+                    self.send_response(416)
+                    self.send_header('Content-Range',f'bytes */{size}')
+                    self.send_header('Content-Length','0')
+                    self.end_headers()
+                    return
+                start,end=selection if selection else (0,size-1)
+                self.send_response(206 if selection else 200)
                 self.send_header('Content-Type','video/mp4')
-                self.send_header('Content-Length',str(os.fstat(stream.fileno()).st_size))
-                self.send_header('Content-Disposition','attachment; filename="'+path.parent.name+'.mp4"')
-                self.send_header('Cache-Control','no-store');self.end_headers()
-                try:shutil.copyfileobj(stream,self.wfile,1024*1024)
+                self.send_header('Accept-Ranges','bytes')
+                self.send_header('Content-Length',str(end-start+1))
+                if selection:self.send_header('Content-Range',f'bytes {start}-{end}/{size}')
+                self.send_header('Content-Disposition',('inline' if browser_cache else 'attachment')+'; filename="'+path.name+'"')
+                self.send_header('Cache-Control','private, max-age=3600' if browser_cache else 'no-store')
+                self.end_headers()
+                stream.seek(start);remaining=end-start+1
+                try:
+                    while remaining:
+                        block=stream.read(min(1024*1024,remaining))
+                        if not block:break
+                        self.wfile.write(block);remaining-=len(block)
                 except (BrokenPipeError,ConnectionResetError):pass
         def do_GET(self):
             path=urlsplit(self.path).path
@@ -551,11 +608,19 @@ def make_handler(console):
                     video=console.video_path(query.get('task',[''])[0],query.get('episode',[''])[0])
                     return self.send_video(video)
                 if path=='/api/inference/view':return self.send(200,console.inference_view())
+                if path=='/api/inference/history':return self.send(200,console.inference_history())
+                if path=='/api/inference/review-stats':return self.send(200,console.inference_review_stats())
                 if path in ('/api/inference/prediction','/api/inference/video'):
                     query=parse_qs(urlsplit(self.path).query);run=query.get('run',[''])[0];index=int(query.get('chunk',['0'])[0])
                     if not 0<=index<=100000:raise ValueError('chunk 编号无效')
                     if path.endswith('prediction'):return self.send(200,console.inference_prediction(run,index))
                     return self.send_video(console.inference_run_path(run)/'server_predictions'/f'chunk_{index:05d}.mp4')
+                if path=='/api/inference/options':return self.send(200,console.inference_bridge('/options'))
+                if path=='/api/inference/preferences':return self.send(200,console.inference_preferences())
+                if path=='/api/inference/archives':return self.send(200,console.inference_bridge('/jobs'))
+                if path=='/api/inference/demo-video':
+                    identity=parse_qs(urlsplit(self.path).query).get('id',[''])[0]
+                    return self.send_video(console.inference_demo_preview(identity),browser_cache=True)
                 if path=='/api/inference/demos':return self.send(200,console.inference_catalog())
                 if path=='/api/catalog':return self.send(200,console.catalog())
                 if path in ('/api/episode/detail','/api/episode/image'):
@@ -580,6 +645,8 @@ def make_handler(console):
                 if not 0<length<=8192:raise ValueError('请求大小无效')
                 body=json.loads(self.rfile.read(length))
                 if not isinstance(body,dict):raise ValueError('参数无效')
+                if self.path=='/api/inference/review':return self.send(200,console.mark_inference_review(body))
+                if self.path=='/api/inference/preferences':return self.send(200,console.save_inference_preferences(body))
                 if self.path!='/api/action':return self.send(404,{'error':'Not found'})
                 if body.get('action')=='inference_emergency':return self.send(200,console.do_inference_emergency(body))
                 console.submit(body.get('action'),body)
