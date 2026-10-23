@@ -70,6 +70,10 @@ R8000 归档配置使用 `decode_device=cuda:0`、`local_python`、`local_decode
 
 2026-10-22 本机 4090 实测：三段预测、15 帧的归档解码与拼接用时约 6.1 秒；单段三视角解码约 0.60 秒（不含冷启动），峰值总显存约 22.1 GiB，当时已有约 17.1 GiB 被其他程序使用。服务端 CPU 在并发负载下一段约 37.9 秒；这些数字仅作该次负载下的参考，完整上传仍受 latent 下载和到 29 的网络传输影响。
 
+2026-10-23 归档解码遇到显存不足时，本机归档服务会先检查 4090 空闲显存；不足 8 GiB 则用同一份本地 VAE 权重改走 CPU 解码，不停止其他 GPU 服务。V07 的一次归档在本机视觉语言模型占用约 19 GiB 显存时，CUDA 解码 0/73 片段失败；重试任务 `20261023_180843_cb17a7cd` 走 CPU 后完成 73 片段、365 帧解码，并通过实拍、三路相机和预测视频的服务端 SHA256 校验。归档位于 `/mnt/sfs_turbo/lijianwen/Tests/real_aloha_test/R8000_261021_v4a10/r8000_V07_with_prompt_20261023_173125_634174_execute`。CPU 解码较慢，任务会持续显示已完成片段数，原始实拍和 latent 保留供重试。
+
+同日按用户要求重启 R8000 的 `zero-wam-oct21-r8000.service`。重启后端口 29056 监听正常；使用 V08 对齐后的示教 latent 和带文本 prompt 做无机械臂的 reset 检查，返回权重路径为 `piperpika_checkpoint_eval_20261021/best_model`，文本条件启用、视频/动作步数 4/10、chunk 2、引导 1/5。此检查只验证重启后的请求路径，不代表 V08 真机抓放结果改善。
+
 R8000 常驻的 `zero-wam-prediction-decoder.service` 也须与当前权重一致；其启动脚本 `start_prediction_decoder_cpu.sh` 的 `--checkpoint` 现指向 `/data/Zero-WAM/models/piperpika_checkpoint_eval_20261021/best_model`，`decoder.env` 的 `DECODER_SINCE` 从新权重首次服务记录起算。切换权重时同时核对这两处，否则旧解码器会把新 `.pt` 标成 checkpoint mismatch。归档任务有独立解码队列，可在常驻解码器暂停时运行。
 
 ### 10 月 22 日示教与 prompt 对齐
