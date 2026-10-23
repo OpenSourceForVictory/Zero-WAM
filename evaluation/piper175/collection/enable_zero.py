@@ -75,6 +75,7 @@ def controllers():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--arm', choices=['left', 'right', 'both'], required=True)
+    parser.add_argument('--speed-percent', type=int, choices=range(1, 7), default=1)
     args = parser.parse_args()
     with (RUNTIME/'.recover_and_zero.lock').open('a') as lock, (ROOT/'.relocalize.lock').open('a') as localization_lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -103,9 +104,10 @@ def main():
             operate('resume')
             for side in sides:
                 check_arm(side)
-                print('正在使能并归零（1%速度）：' + side, flush=True)
+                print('正在使能并归零（' + str(args.speed_percent) + '%速度）：' + side, flush=True)
                 subprocess.run([sys.executable, '-u', str(RUNTIME/'go_zero.py'), '--arm', side,
-                                '--execute', '--output', str(dest/side)], cwd=RUNTIME, check=True)
+                                '--execute', '--speed-percent', str(args.speed_percent),
+                                '--output', str(dest/side)], cwd=RUNTIME, check=True)
                 result = json.loads((dest/side/'result.json').read_text())
                 if not result.get('reached'):
                     raise RuntimeError(side + '未确认到位')

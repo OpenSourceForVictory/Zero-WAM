@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--arm', choices=['left', 'right'], required=True)
     parser.add_argument('--execute', action='store_true')
+    parser.add_argument('--speed-percent', type=int, choices=range(1, 7), default=1)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
@@ -20,7 +21,7 @@ def main():
     channel = channel_for(args.arm)
     arm = AgxArmFactory.create_arm(create_agx_arm_config(
         robot=ArmModel.PIPER, firmeware_version='default', interface='socketcan', channel=channel))
-    report = {'arm': args.arm, 'channel': channel, 'speed_percent': 1,
+    report = {'arm': args.arm, 'channel': channel, 'speed_percent': args.speed_percent,
               'target_deg': [0]*6, 'execute': args.execute, 'reached': False,
               'calibration_written': False, 'gripper_commands_sent': False}
     actuated = False
@@ -51,7 +52,7 @@ def main():
             time.sleep(.05)
         else:
             raise RuntimeError('Enable timeout')
-        arm.set_speed_percent(1)
+        arm.set_speed_percent(args.speed_percent)
         arm.set_auto_set_motion_mode_enabled(True)
         arm.set_motion_mode('j')
         for _ in range(30):

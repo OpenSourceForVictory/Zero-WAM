@@ -1,0 +1,3 @@
+exit=0
+{"time": 1792743301.5169902, "target_mm": 0, "feedback_mm": -0.5, "enabled": true, "overcurrent": false}
+
