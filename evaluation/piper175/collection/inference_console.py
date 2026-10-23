@@ -46,7 +46,7 @@ class InferenceConsole:
         path=ROOT/'.inference_last.json';tmp=path.with_suffix('.tmp')
         tmp.write_text(json.dumps(self.inference_result,ensure_ascii=False));tmp.replace(path)
 
-    def inference_history(self, limit=50):
+    def inference_history(self):
         """Recent saved web runs, including runs that were never archived."""
         from web_console import ROOT
         base=ROOT.parent/'inference_client/inference_logs/web'
@@ -71,7 +71,6 @@ class InferenceConsole:
                              'finished':result is not None,
                              'review':review if isinstance(review,dict) and (review.get('outcome') in ('success','failure') or review.get('note')) else None,
                              'result':{k:result.get(k) for k in ('completed','stopped_by_user','error','sent_steps','task_success')} if result else None})
-                if len(rows)>=limit:return rows
         return rows
 
     def inference_review_stats(self):
