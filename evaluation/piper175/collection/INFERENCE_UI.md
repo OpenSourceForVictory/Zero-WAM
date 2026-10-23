@@ -78,6 +78,8 @@ R8000 归档配置使用 `decode_device=cuda:0`、`local_python`、`local_decode
 
 R8000 常驻的 `zero-wam-prediction-decoder.service` 也须与当前权重一致；其启动脚本 `start_prediction_decoder_cpu.sh` 的 `--checkpoint` 现指向 `/data/Zero-WAM/models/piperpika_checkpoint_eval_20261021/best_model`，`decoder.env` 的 `DECODER_SINCE` 从新权重首次服务记录起算。切换权重时同时核对这两处，否则旧解码器会把新 `.pt` 标成 checkpoint mismatch。归档任务有独立解码队列，可在常驻解码器暂停时运行。
 
+选择推理页的“对应 chunk 的服务端预测”时，网页向本机 broker 提交该运行、chunk 和服务端视频路径。broker 只接受当前预测根目录下、编号匹配的 `chunk_XXXXX.mp4`，给 R8000 离线解码器写入有时效的优先运行标记；解码完成后经本机将视频同步到工控机该运行的 `server_predictions/`。页面显示等待、同步和失败状态。这个流程不连接推理 RPC，不发送 reset，也不控制机械臂。当前选择即解码仅对 R8000 启用；29 仍由归档流程解码。归档上传仍须手动选择目标目录。
+
 ### 10 月 22 日示教与 prompt 对齐
 
 直接逐段查看 V01–V12 人类示教的物体、容器和动作顺序，发现 V05、V08、V09、V10、V11、V12 的原表格 prompt 与视频不一致。具体原文、修正文及观察到的顺序保存在 `artifacts/zeroshot_oct21/demo_alignment_audit.json`。原始 `Vxx.pth` 均未覆盖；29 上新增 `outputs/zeroshot_long_oct21/aligned_prompt/Vxx_aligned.pth`，视频 latent 与原文件逐张量一致。修正版去掉错误的 `text_emb`，服务端 `_cache_icl_context` 会让示教侧继承本次 reset 的正确 prompt 编码。29 和 R8000 当前代码均已核对这一路径。R8000 准备示教使用带 `_aligned` 的独立文件名，避免读到旧缓存。归档服务在准备时也核对所选示教与 prompt；浏览器留有旧页面时会拒绝启动并提示刷新。

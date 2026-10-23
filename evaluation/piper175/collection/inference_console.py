@@ -131,6 +131,20 @@ class InferenceConsole:
         if self.inference_result and self.inference_result.get('run')==run:
             self.inference_result['archive']=job;self.save_inference_result()
 
+    def start_prediction_preview(self, body):
+        run=body.get('run');chunk=body.get('chunk')
+        if type(chunk) is not int or not 0<=chunk<=100000:raise ValueError('chunk 编号无效')
+        path=self.inference_run_path(run)
+        request=json.loads((path.parent/'request.json').read_text())['request']
+        rows=self.tail_records(path/'prediction_artifacts.jsonl')
+        matches=[row for row in rows if row.get('chunk_index')==chunk]
+        if len(matches)!=1 or not matches[0].get('video_path'):
+            raise ValueError('该 chunk 尚无服务端预测记录')
+        video=path/'server_predictions'/f'chunk_{chunk:05d}.mp4'
+        if video.is_file():return {'run':run,'chunk':chunk,'status':'complete','phase':'视频已同步'}
+        return self.inference_bridge('/preview',{'run':run,'chunk':chunk,
+             'profile':request['profile'],'server_video':matches[0]['video_path']})
+
 
     def inference_catalog(self):
         from web_console import ROOT

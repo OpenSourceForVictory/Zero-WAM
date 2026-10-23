@@ -20,6 +20,22 @@ def test_archive_paths():
     assert safe_target('/data/custom test','/data')=='/data/custom test'
 
 
+def test_preview_accepts_only_matching_prediction_chunk(tmp_path,monkeypatch):
+    broker=Broker({'state_dir':str(tmp_path),'profiles':{'r8000':{'trace_root':'/traces'},'29':{'trace_root':'/traces'}}})
+    started=[]
+    monkeypatch.setattr(threading.Thread,'start',lambda self:started.append(self))
+    request={'run':'web/20261023/run_execute','profile':'r8000','chunk':2,
+             'server_video':'/traces/piperpika_20261023_run/chunk_00002.mp4'}
+    job=broker.enqueue_preview(request)
+    assert job['status']=='queued' and len(started)==1
+    assert broker.enqueue_preview(request)['id']==job['id'] and len(started)==1
+    for source in ('/etc/passwd','/traces/other/chunk_00002.mp4',
+                   '/traces/piperpika_20261023_run/chunk_00003.mp4'):
+        with pytest.raises(ValueError):broker.enqueue_preview({**request,'server_video':source})
+    with pytest.raises(ValueError,match='仅支持 R8000'):
+        broker.enqueue_preview({**request,'profile':'29'})
+
+
 def test_r8000_archive_uses_cpu_decoder_script(tmp_path):
     script=tmp_path/'decode_predictions.py';script.write_text('')
     queue=tmp_path/'decode_work'/'piperpika_run'

@@ -44,6 +44,11 @@ class Broker:
             if job['status'] in ('queued', 'running'):
                 job.update(status='failed', phase='服务重启，请重试归档', error='Archive service restarted')
                 atomic_json(path, job)
+        for path in self.root.glob('preview_*.json'):
+            job = json.loads(path.read_text())
+            if job['status'] in ('queued', 'running'):
+                job.update(status='failed', phase='服务重启，请重新选择该 chunk', error='Preview service restarted')
+                atomic_json(path, job)
 
     def call(self, argv, **kw):
         reporter=getattr(self.progress,'report',None)
@@ -138,6 +143,65 @@ if not target.is_file():
 
     def jobs(self):
         return [json.loads(p.read_text()) for p in sorted(self.root.glob('job_*.json'),reverse=True)][:50]
+
+    def preview_jobs(self):
+        return [json.loads(p.read_text()) for p in sorted(self.root.glob('preview_*.json'),reverse=True)][:50]
+
+    def enqueue_preview(self, body):
+        run = safe_run(body['run'])
+        profile = body['profile']
+        if profile not in self.config['profiles']: raise ValueError('Unknown server')
+        if profile != 'r8000':
+            raise ValueError('当前选择即解码仅支持 R8000；29 服务端预测请使用结果归档解码')
+        chunk = body['chunk']
+        if type(chunk) is not int or not 0 <= chunk <= 100000: raise ValueError('Invalid chunk')
+        source = PurePosixPath(body['server_video'])
+        root = PurePosixPath(self.config['profiles'][profile]['trace_root'])
+        parts = source.relative_to(root).parts
+        if len(parts) != 2 or not re.fullmatch(r'piperpika_[A-Za-z0-9_-]+', parts[0]) or parts[1] != f'chunk_{chunk:05d}.mp4':
+            raise ValueError('Prediction path does not match the selected chunk')
+        with self.lock:
+            for job in self.preview_jobs():
+                if (job['run'], job['profile'], job['chunk'], job['server_video']) == (run, profile, chunk, str(source)) and job['status'] in ('queued','running','complete'):
+                    return job
+            identity = time.strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:8]
+            job = dict(id=identity,run=run,profile=profile,chunk=chunk,server_video=str(source),
+                       status='queued',phase='等待服务端解码',created_at=time.time(),error=None)
+            atomic_json(self.root/('preview_'+identity+'.json'),job)
+        threading.Thread(target=self.sync_preview,args=(job,),daemon=True).start()
+        return job
+
+    def sync_preview(self, job):
+        path = self.root/('preview_'+job['id']+'.json')
+        profile = job['profile']; source = PurePosixPath(job['server_video'])
+        root = self.config['profiles'][profile]['trace_root']
+        destination = self.config['ipc_log_root']+'/'+job['run']+f'/server_predictions/chunk_{job["chunk"]:05d}.mp4'
+        def stage(phase):
+            job.update(status='running',phase=phase,updated_at=time.time());atomic_json(path,job)
+        try:
+            stage('已加入服务端解码优先队列')
+            marker = 'import json,sys,time;from pathlib import Path;p=Path(sys.argv[1]);t=p.with_suffix(".tmp");t.write_text(json.dumps({"run":sys.argv[2],"expires_at":time.time()+900}));t.replace(p)'
+            self.ssh(profile,['python3','-c',marker,root+'/.decode_priority.json',source.parent.name])
+            stage('等待服务端生成所选 chunk 视频')
+            deadline=time.monotonic()+900
+            while time.monotonic()<deadline:
+                check = self.ssh(profile,['python3','-c',
+                    'import os,sys;print("ready" if os.path.getsize(sys.argv[1])>0 else "pending") if os.path.exists(sys.argv[1]) else print("pending")',str(source)])
+                if check.strip()==b'ready':break
+                time.sleep(3)
+            else:raise TimeoutError('15 分钟内未生成预测视频，请检查服务端解码器')
+            stage('同步预测视频到工控机')
+            work=self.root/('preview_'+job['id']);work.mkdir(exist_ok=True)
+            local=work/source.name
+            self.copy(profile,str(source),str(local))
+            self.ssh('ipc',['mkdir','-p',str(PurePosixPath(destination).parent)])
+            self.copy('ipc',str(local),destination+'.partial',True)
+            self.ssh('ipc',['mv',destination+'.partial',destination])
+            job.update(status='complete',phase='已解码并同步',updated_at=time.time(),bytes=local.stat().st_size)
+            atomic_json(path,job)
+        except Exception as exc:
+            job.update(status='failed',phase='解码或同步失败',updated_at=time.time(),error=str(exc))
+            atomic_json(path,job)
 
     def enqueue(self, body):
         run = safe_run(body['run']); profile = body['profile']
@@ -345,6 +409,7 @@ def handler(broker):
                 if path=='/options':return self.respond(200,broker.options())
                 if path=='/demos':return self.respond(200,broker.config['demos'])
                 if path=='/jobs':return self.respond(200,broker.jobs())
+                if path=='/previews':return self.respond(200,broker.preview_jobs())
                 if path=='/demo-video':return self.respond(200,broker.video(parse_qs(urlsplit(self.path).query)['id'][0]).read_bytes(),'video/mp4')
                 return self.respond(404,{'error':'Not found'})
             except Exception as exc:return self.respond(503,{'error':str(exc)})
@@ -356,6 +421,7 @@ def handler(broker):
                 body=json.loads(self.rfile.read(size))
                 if self.path=='/prepare':return self.respond(200,broker.prepare(body))
                 if self.path=='/archive':return self.respond(202,broker.enqueue(body))
+                if self.path=='/preview':return self.respond(202,broker.enqueue_preview(body))
                 return self.respond(404,{'error':'Not found'})
             except Exception as exc:return self.respond(409,{'error':str(exc)})
     return Handler

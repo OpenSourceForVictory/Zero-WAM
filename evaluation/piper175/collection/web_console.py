@@ -620,6 +620,7 @@ def make_handler(console):
                 if path=='/api/inference/options':return self.send(200,console.inference_bridge('/options'))
                 if path=='/api/inference/preferences':return self.send(200,console.inference_preferences())
                 if path=='/api/inference/archives':return self.send(200,console.inference_bridge('/jobs'))
+                if path=='/api/inference/previews':return self.send(200,console.inference_bridge('/previews'))
                 if path=='/api/inference/demo-video':
                     identity=parse_qs(urlsplit(self.path).query).get('id',[''])[0]
                     return self.send_video(console.inference_demo_preview(identity),browser_cache=True)
@@ -648,6 +649,7 @@ def make_handler(console):
                 body=json.loads(self.rfile.read(length))
                 if not isinstance(body,dict):raise ValueError('参数无效')
                 if self.path=='/api/inference/review':return self.send(200,console.mark_inference_review(body))
+                if self.path=='/api/inference/preview':return self.send(202,console.start_prediction_preview(body))
                 if self.path=='/api/inference/preferences':return self.send(200,console.save_inference_preferences(body))
                 if self.path!='/api/action':return self.send(404,{'error':'Not found'})
                 if body.get('action')=='inference_emergency':return self.send(200,console.do_inference_emergency(body))

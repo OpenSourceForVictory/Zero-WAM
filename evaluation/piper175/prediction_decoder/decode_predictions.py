@@ -70,6 +70,14 @@ def main():
 
     while True:
         runs = sorted(a.root.glob('piperpika_*'), reverse=True)
+        # A console preview request can move one saved run ahead of the backlog.
+        # This only changes the offline decoder queue; it never touches the RPC server.
+        try:
+            priority = json.loads((a.root/'.decode_priority.json').read_text())
+            if priority.get('expires_at', 0) > time.time():
+                runs.sort(key=lambda r: r.name == priority.get('run'), reverse=True)
+        except (OSError, ValueError, AttributeError):
+            pass
         runs = [r for r in runs if r.is_dir() and (not a.run or r.name == a.run) and (r/'reset.json').exists() and (r/'reset.json').stat().st_mtime >= a.since]
         pending = [x for r in runs for x in sorted(r.glob('chunk_*.pt')) if not x.with_suffix('.decoded.json').exists() and x not in failed]
         if not pending:
