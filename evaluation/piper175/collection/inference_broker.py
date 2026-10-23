@@ -152,15 +152,29 @@ if not target.is_file():
         run=safe_run(body.get('run',''))
         profile=body.get('profile')
         if profile not in self.config['profiles']:raise ValueError('Unknown server')
+        expected=body.get('expected_chunks')
+        if type(expected) is not int or not 1<=expected<=100000:
+            raise ValueError('Expected prediction chunk count is invalid')
         root=PurePosixPath(self.config['profiles'][profile]['trace_root'])
         trace=PurePosixPath(body.get('trace_dir',''))
         parts=trace.relative_to(root).parts
         if len(parts)!=1 or not re.fullmatch(r'piperpika_[A-Za-z0-9_-]+',parts[0]):
             raise ValueError('Prediction path does not match a run')
         source=trace/'prediction_combined.mp4'
+        report=trace/'prediction_combined.json'
         source_host=profile
-        probe='import sys;from pathlib import Path;p=Path(sys.argv[1]);print("ready" if p.is_file() and p.stat().st_size>0 else "missing")'
-        if self.ssh(profile,['python3','-c',probe,str(source)]).strip()!=b'ready':
+        probe='import json,sys;from pathlib import Path;p=Path(sys.argv[1]);r=Path(sys.argv[2]);print(json.dumps({"ready":p.is_file() and p.stat().st_size>0,"chunks":json.loads(r.read_text()).get("chunks",0) if r.is_file() else 0}))'
+        def remote_progress():
+            return json.loads(self.ssh(profile,['python3','-c',probe,str(source),str(report)]))
+        progress=remote_progress()
+        if profile=='r8000' and (not progress['ready'] or progress['chunks']<expected):
+            deadline=time.monotonic()+600
+            while time.monotonic()<deadline:
+                time.sleep(3)
+                progress=remote_progress()
+                if progress['ready'] and progress['chunks']>=expected:break
+        archive_chunks=None
+        if not progress['ready'] or progress['chunks']<expected:
             matches=[]
             for path in self.root.glob('job_*.json'):
                 try:job=json.loads(path.read_text())
@@ -168,18 +182,30 @@ if not target.is_file():
                 if job.get('run')==run and job.get('profile')==profile and job.get('status')=='complete' and job.get('output'):
                     matches.append(job)
             if not matches:raise FileNotFoundError('服务端整段预测视频尚未解码；请等待解码或先归档此运行')
-            source=PurePosixPath(max(matches,key=lambda j:j.get('finished_at',0))['output'])/'predictions/prediction_combined.mp4'
+            job=max(matches,key=lambda j:j.get('finished_at') or 0)
+            archive_chunks=(job.get('verification') or {}).get('prediction_chunks',0)
+            if archive_chunks<expected:raise ValueError('归档中的预测 chunk 数少于本次运行记录')
+            source=PurePosixPath(job['output'])/'predictions/prediction_combined.mp4'
             source_host='29'
         work=self.root/'history_video_cache'/profile/parts[0]
         work.mkdir(parents=True,exist_ok=True)
         local=work/'prediction_combined.mp4'
         self.copy(source_host,str(source),str(local)+'.partial')
         Path(str(local)+'.partial').replace(local)
+        local_report=work/'prediction_combined.json'
+        if archive_chunks is None:
+            self.copy(profile,str(report),str(local_report)+'.partial')
+            Path(str(local_report)+'.partial').replace(local_report)
+        else:
+            atomic_json(local_report,{'chunks':archive_chunks,'source':'verified_archive'})
         destination=PurePosixPath(self.config['ipc_log_root'])/run/'server_predictions/prediction_combined.mp4'
         self.ssh('ipc',['mkdir','-p',str(destination.parent)])
         self.copy('ipc',str(local),str(destination)+'.partial',True)
         self.ssh('ipc',['mv',str(destination)+'.partial',str(destination)])
-        return {'run':run,'bytes':local.stat().st_size,'status':'complete'}
+        receipt=destination.with_suffix('.json')
+        self.copy('ipc',str(local_report),str(receipt)+'.partial',True)
+        self.ssh('ipc',['mv',str(receipt)+'.partial',str(receipt)])
+        return {'run':run,'bytes':local.stat().st_size,'chunks':json.loads(local_report.read_text())['chunks'],'status':'complete'}
 
     def enqueue_preview(self, body):
         run = safe_run(body['run'])

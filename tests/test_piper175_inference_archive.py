@@ -40,17 +40,17 @@ def test_history_video_sync_is_scoped_to_selected_trace(tmp_path,monkeypatch):
     b=Broker({'state_dir':str(tmp_path),'ipc_log_root':'/robot/logs',
               'profiles':{'r8000':{'trace_root':'/traces'}}})
     transfers=[];commands=[]
-    monkeypatch.setattr(b,'ssh',lambda host,command,**kw:commands.append((host,command)) or b'ready')
+    monkeypatch.setattr(b,'ssh',lambda host,command,**kw:commands.append((host,command)) or b'{"ready":true,"chunks":3}')
     def copy(host,src,dst,upload=False):
         transfers.append((host,src,dst,upload))
-        if not upload:Path(dst).write_bytes(b'video')
+        if not upload:Path(dst).write_bytes(b'{"chunks":3}' if src.endswith('.json') else b'video')
     monkeypatch.setattr(b,'copy',copy)
     body={'run':'web/20261023_120000_with_prompt/20261023_120001_execute',
-          'profile':'r8000','trace_dir':'/traces/piperpika_20261023_run'}
+          'profile':'r8000','trace_dir':'/traces/piperpika_20261023_run','expected_chunks':3}
     result=b.sync_history_video(body)
     assert result['status']=='complete' and result['bytes']==5
     assert transfers[0][1]=='/traces/piperpika_20261023_run/prediction_combined.mp4'
-    assert transfers[1][2]=='/robot/logs/'+body['run']+'/server_predictions/prediction_combined.mp4.partial'
+    assert transfers[2][2]=='/robot/logs/'+body['run']+'/server_predictions/prediction_combined.mp4.partial'
     for trace in ('/etc','/traces/other','/traces/piperpika_ok/other'):
         with pytest.raises(ValueError):b.sync_history_video({**body,'trace_dir':trace})
 
@@ -58,17 +58,36 @@ def test_history_video_sync_is_scoped_to_selected_trace(tmp_path,monkeypatch):
 def test_history_video_uses_completed_archive_when_trace_not_decoded(tmp_path,monkeypatch):
     run='web/20261023_120000/20261023_120001_execute'
     (tmp_path/'job_old.json').write_text(json.dumps({'run':run,'profile':'29','status':'complete',
-                                                      'output':'/archive/V11','finished_at':1}))
+                                                      'output':'/archive/V11','finished_at':1,
+                                                      'verification':{'prediction_chunks':5}}))
     b=Broker({'state_dir':str(tmp_path),'ipc_log_root':'/robot/logs',
               'profiles':{'29':{'trace_root':'/traces'}}})
-    monkeypatch.setattr(b,'ssh',lambda *a,**kw:b'missing')
+    monkeypatch.setattr(b,'ssh',lambda *a,**kw:b'{"ready":false,"chunks":0}')
     copied=[]
     def copy(host,src,dst,upload=False):
         copied.append((host,src,dst,upload))
         if not upload:Path(dst).write_bytes(b'archived video')
     monkeypatch.setattr(b,'copy',copy)
-    b.sync_history_video({'run':run,'profile':'29','trace_dir':'/traces/piperpika_run'})
+    b.sync_history_video({'run':run,'profile':'29','trace_dir':'/traces/piperpika_run','expected_chunks':5})
     assert copied[0][1]=='/archive/V11/predictions/prediction_combined.mp4'
+
+
+def test_history_video_waits_for_all_recorded_chunks(tmp_path,monkeypatch):
+    import inference_broker
+    b=Broker({'state_dir':str(tmp_path),'ipc_log_root':'/robot/logs',
+              'profiles':{'r8000':{'trace_root':'/traces'}}})
+    responses=iter((b'{"ready":true,"chunks":5}',b'{"ready":true,"chunks":45}'))
+    monkeypatch.setattr(b,'ssh',lambda *a,**k:next(responses,b''))
+    monkeypatch.setattr(inference_broker.time,'sleep',lambda _:None)
+    copied=[]
+    def copy(host,src,dst,upload=False):
+        copied.append((host,src,dst,upload))
+        if not upload:Path(dst).write_bytes(b'{"chunks":45}' if src.endswith('.json') else b'full video')
+    monkeypatch.setattr(b,'copy',copy)
+    result=b.sync_history_video({'run':'web/session/run','profile':'r8000',
+                                 'trace_dir':'/traces/piperpika_run','expected_chunks':45})
+    assert result['chunks']==45
+    assert len(copied)==4
 
 
 def test_r8000_archive_uses_cpu_decoder_script(tmp_path):
@@ -184,8 +203,6 @@ def test_history_includes_unarchived_saved_runs(tmp_path,monkeypatch):
     assert len(rows)==1
     assert rows[0]['run']=='web/20261022_191614/20261022_191614_509092_execute'
     assert rows[0]['result']['sent_steps']==439
-    assert rows[0]['real_video_ready'] is False
-    assert rows[0]['prediction_video_ready'] is False
     (run/'result.json').unlink()
     assert web.Console.inference_history(None)[0]['finished'] is False
 
@@ -198,6 +215,8 @@ def test_history_media_only_serves_selected_saved_run(tmp_path,monkeypatch):
     (run/'combined.browser.mp4').write_bytes(b'h264')
     prediction=run/'server_predictions/prediction_combined.mp4'
     prediction.parent.mkdir();prediction.write_bytes(b'pred')
+    prediction.with_suffix('.json').write_text('{"chunks":1}')
+    (run/'prediction_artifacts.jsonl').write_text('{"chunk_index":0}\n')
     monkeypatch.setattr(web,'ROOT',root)
     console=web.Console.__new__(web.Console)
     console.history_video_lock=threading.Lock();console.history_video_jobs={}
@@ -206,6 +225,11 @@ def test_history_media_only_serves_selected_saved_run(tmp_path,monkeypatch):
     assert status['real_ready'] and status['prediction_ready']
     assert console.history_video_path(name,'real').read_bytes()==b'h264'
     assert console.history_video_path(name,'prediction').read_bytes()==b'pred'
+    prediction.with_suffix('.json').write_text('{"chunks":1}')
+    (run/'prediction_artifacts.jsonl').write_text('{"chunk_index":0}\n{"chunk_index":1}\n')
+    assert console.history_media_status(name)['prediction_ready'] is False
+    with pytest.raises(FileNotFoundError,match='尚未同步完整'):
+        console.history_video_path(name,'prediction')
     with pytest.raises(ValueError):console.history_video_path(name,'other')
     with pytest.raises(ValueError):console.history_video_path('../other','real')
 

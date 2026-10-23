@@ -669,4 +669,4 @@ ROS launch 自动升级 SIGTERM/SIGKILL 清理；最终本次四个控制节点�
 
 ### 历史推理视频查看（2026-10-23）
 
-推理页的“历史推理运行”中点击“查看实拍与预测视频”，可在同一条记录下分别播放三相机合成实拍和服务端整段预测。实拍原文件 `combined.mp4` 在工控机上保留；首次查看时生成浏览器兼容的 H.264 副本 `combined.browser.mp4`。预测视频根据该运行的 `prediction_artifacts.jsonl` 定位到对应服务端 trace，按需同步为该运行的 `server_predictions/prediction_combined.mp4`，不会混用其他运行或触发机械臂动作。若服务端整段视频尚未解码，页面显示原因；已归档的运行可从其 29 服务端归档目录读取。两段视频各按自身帧率播放，不表示严格墙钟同步。
+推理页的“历史推理运行”中点击“查看实拍与预测视频”，可在同一条记录下分别播放三相机合成实拍和服务端整段预测。实拍原文件 `combined.mp4` 在工控机上保留；首次查看时生成浏览器兼容的 H.264 副本 `combined.browser.mp4`。预测视频根据该运行的 `prediction_artifacts.jsonl` 定位到对应服务端 trace，按需同步为该运行的 `server_predictions/prediction_combined.mp4`，不会混用其他运行或触发机械臂动作。页面会用 `prediction_combined.json` 的 chunk 数与客户端运行记录核对；若服务端仍在解码，会等待完整视频并覆盖先前的短暂缓存，播放地址随 chunk 数更新。若服务端整段视频尚未解码，页面显示原因；已归档的运行可从其 29 服务端归档目录读取。两段视频各按自身帧率播放，不表示严格墙钟同步。

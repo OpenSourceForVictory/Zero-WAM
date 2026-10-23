@@ -72,26 +72,38 @@ class InferenceConsole:
                              'prompt':selected.get('prompt') if selected.get('use_prompt',True) else '',
                              'use_prompt':selected.get('use_prompt',True),
                              'finished':result is not None,
-                             'real_video_ready':(run/'combined.mp4').is_file(),
-                             'prediction_video_ready':(run/'server_predictions/prediction_combined.mp4').is_file(),
                              'review':review if isinstance(review,dict) and (review.get('outcome') in ('success','failure') or review.get('note')) else None,
                              'result':{k:result.get(k) for k in ('completed','stopped_by_user','error','sent_steps','task_success')} if result else None})
         return rows
+
+    def history_prediction_progress(self, path):
+        rows=self.tail_records(path/'prediction_artifacts.jsonl')
+        expected=max((int(row['chunk_index']) for row in rows if 'chunk_index' in row),default=-1)+1
+        report=path/'server_predictions/prediction_combined.json'
+        try:decoded=int(json.loads(report.read_text()).get('chunks',0))
+        except (OSError,ValueError,TypeError):decoded=0
+        ready=(path/'server_predictions/prediction_combined.mp4').is_file() and decoded>0 and decoded>=expected
+        return {'ready':ready,'decoded_chunks':decoded,'expected_chunks':expected}
 
     def history_media_status(self, run):
         path = self.inference_run_path(run)
         with self.history_video_lock:
             job = dict(self.history_video_jobs.get(run) or {})
+        progress=self.history_prediction_progress(path)
         return {'run':run,
                 'real_ready':(path/'combined.browser.mp4').is_file(),
                 'real_available':(path/'combined.mp4').is_file(),
-                'prediction_ready':(path/'server_predictions/prediction_combined.mp4').is_file(),
+                'prediction_ready':progress['ready'],
+                'decoded_chunks':progress['decoded_chunks'],
+                'expected_chunks':progress['expected_chunks'],
                 'sync':job}
 
     def history_video_path(self, run, kind):
         if kind not in ('real','prediction'):raise ValueError('视频类型无效')
         path=self.inference_run_path(run)
         video=path/'combined.browser.mp4' if kind=='real' else path/'server_predictions/prediction_combined.mp4'
+        if kind=='prediction' and not self.history_prediction_progress(path)['ready']:
+            raise FileNotFoundError('整段预测视频尚未同步完整')
         if not video.is_file():raise FileNotFoundError('该运行的视频尚未保存或预测尚未解码')
         return video
 
@@ -118,15 +130,17 @@ class InferenceConsole:
             except Exception as exc:
                 errors.append('实拍视频处理失败：'+str(exc))
             try:
-                if not (path/'server_predictions/prediction_combined.mp4').is_file():
+                if not self.history_prediction_progress(path)['ready']:
                     rows=self.tail_records(path/'prediction_artifacts.jsonl')
                     sources={str(Path(row['latent_path']).parent) for row in rows if row.get('latent_path')}
                     if len(sources)!=1:raise ValueError('该次运行没有唯一的服务端预测记录')
+                    expected=max((int(row['chunk_index']) for row in rows if 'chunk_index' in row),default=-1)+1
                     request=json.loads((path.parent/'request.json').read_text()).get('request') or {}
                     profile=request.get('profile')
                     if profile not in ('29','r8000'):raise ValueError('该次运行没有可用的服务端配置')
                     with self.history_video_lock:self.history_video_jobs[run]['message']='正在从服务端同步预测视频'
-                    self.inference_bridge('/history-video',{'run':run,'profile':profile,'trace_dir':sources.pop()})
+                    self.inference_bridge('/history-video',{'run':run,'profile':profile,
+                                                             'trace_dir':sources.pop(),'expected_chunks':expected})
             except Exception as exc:
                 errors.append('预测视频同步失败：'+str(exc))
             status={'status':'failed' if errors else 'complete',
@@ -137,9 +151,12 @@ class InferenceConsole:
         return self.history_media_status(run)
 
     def history_media_status_unlocked(self,run,path):
+        progress=self.history_prediction_progress(path)
         return {'run':run,'real_ready':(path/'combined.browser.mp4').is_file(),
                 'real_available':(path/'combined.mp4').is_file(),
-                'prediction_ready':(path/'server_predictions/prediction_combined.mp4').is_file(),
+                'prediction_ready':progress['ready'],
+                'decoded_chunks':progress['decoded_chunks'],
+                'expected_chunks':progress['expected_chunks'],
                 'sync':dict(self.history_video_jobs.get(run) or {})}
 
     def inference_review_stats(self):
