@@ -94,3 +94,6 @@ R8000 常驻的 `zero-wam-prediction-decoder.service` 也须与当前权重一�
 
 
 2026-10-23 纯人类视频模式验证：选择“关闭发送文本 prompt”后，客户端仍用 `prompt=""` 标识本次请求；服务端的 `_reset_icl` 检测空字符串，直接加载 `empty_text_emb.pt`，跳过本次 T5 文本编码，并对 ICL 示教侧覆盖其内嵌文本 embedding。服务端强制 `video_guidance_scale=-1`、保持 `icl_guidance_scale=5`，reset 回传 `text_conditioning=video_only_fixed_empty_v1` 与 `target_text_enabled=false`。有 prompt 模式仍调用原文本编码器。29 和 R8000 的 `wan_va_server.py` 与 `evaluation/piperpika/server.py` 已部署并重启；原文件分别保存为 `.before_video_only_fixed_20261023`。使用保存的 V05 初始三相机观测，不接机械臂，各发一次 reset 和预测：R8000 reset 1.120 秒、预测 1.829 秒；29 reset 1.498 秒、预测 10.335 秒，均返回 14×2×16 有限动作。报告：`artifacts/video_only_fixed_20261023/{r8000,29}.json`。R8000 的 5 项服务端测试通过；29 的环境没有 pytest，以真实无动作预测验证。
+
+
+2026-10-23 旧空 prompt 运行隔离：此前按“编码空字符串”协议录制的 13 次运行已从工控机 `inference_logs/web/` 原位移动到 `inference_logs/legacy_no_prompt_empty_encoded_20261023/web/`；原录像、反馈、人工评估和 request/manifest 均保留。旧目录 `index.json` 保存原路径到新路径映射及 10 条人工失败标记，原 `.inference_last.json` 备份为 `last_inference_state.json`。本机索引副本见 `artifacts/video_only_fixed_20261023/legacy_runs_index.json`。网页的无 prompt 统计从 0 次已评估运行重新开始，供固定空 embedding 协议的成功率测试使用。

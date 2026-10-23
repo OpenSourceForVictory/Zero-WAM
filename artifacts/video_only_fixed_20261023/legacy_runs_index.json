@@ -1,0 +1,101 @@
+{
+  "reason": "Legacy no-prompt requests encoded an empty string; moved before fixed-empty video-only protocol",
+  "protocol": "empty_string_encoded_before_20261023_141800",
+  "count": 13,
+  "reviewed": {
+    "failure": 10
+  },
+  "runs": [
+    {
+      "old_run": "web/20261023_122024_no_prompt/20261023_122024_568758_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_122024_no_prompt/20261023_122024_568758_execute",
+      "outcome": null,
+      "note": null,
+      "video_id": "V05"
+    },
+    {
+      "old_run": "web/20261023_122127_no_prompt/20261023_122128_016520_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_122127_no_prompt/20261023_122128_016520_execute",
+      "outcome": null,
+      "note": null,
+      "video_id": "V05"
+    },
+    {
+      "old_run": "web/20261023_125952_no_prompt/20261023_125952_840357_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_125952_no_prompt/20261023_125952_840357_execute",
+      "outcome": "failure",
+      "note": "第一个物体放错容器",
+      "video_id": "V05"
+    },
+    {
+      "old_run": "web/20261023_130428_no_prompt/20261023_130428_847380_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_130428_no_prompt/20261023_130428_847380_execute",
+      "outcome": "failure",
+      "note": "第一个物体放错容器",
+      "video_id": "V05"
+    },
+    {
+      "old_run": "web/20261023_131012_no_prompt/20261023_131012_672766_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_131012_no_prompt/20261023_131012_672766_execute",
+      "outcome": "failure",
+      "note": "第一个物体放错容器，第二次未抓取碰到容器",
+      "video_id": "V05"
+    },
+    {
+      "old_run": "web/20261023_131521_no_prompt/20261023_131522_156870_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_131521_no_prompt/20261023_131522_156870_execute",
+      "outcome": "failure",
+      "note": "第一个物体放错容器，第二次未抓取碰到容器",
+      "video_id": "V05"
+    },
+    {
+      "old_run": "web/20261023_132418_no_prompt/20261023_132418_506653_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_132418_no_prompt/20261023_132418_506653_execute",
+      "outcome": "failure",
+      "note": "第一个物体放错容器",
+      "video_id": "V01"
+    },
+    {
+      "old_run": "web/20261023_132929_no_prompt/20261023_132929_583482_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_132929_no_prompt/20261023_132929_583482_execute",
+      "outcome": "failure",
+      "note": "第一个物体放错容器",
+      "video_id": "V01"
+    },
+    {
+      "old_run": "web/20261023_133226_no_prompt/20261023_133226_896470_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_133226_no_prompt/20261023_133226_896470_execute",
+      "outcome": "failure",
+      "note": "第一个物体放错容器",
+      "video_id": "V01"
+    },
+    {
+      "old_run": "web/20261023_133612_no_prompt/20261023_133613_189286_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_133612_no_prompt/20261023_133613_189286_execute",
+      "outcome": "failure",
+      "note": "第一个物体放错容器",
+      "video_id": "V01"
+    },
+    {
+      "old_run": "web/20261023_134237_no_prompt/20261023_134237_943283_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_134237_no_prompt/20261023_134237_943283_execute",
+      "outcome": "failure",
+      "note": "第一个物体放置错容器，放置过程中把物体碰掉",
+      "video_id": "V01"
+    },
+    {
+      "old_run": "web/20261023_134817_no_prompt/20261023_134818_087583_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_134817_no_prompt/20261023_134818_087583_execute",
+      "outcome": "failure",
+      "note": "第一次放置物体时，触底",
+      "video_id": "V01"
+    },
+    {
+      "old_run": "web/20261023_135101_no_prompt/20261023_135102_056535_execute",
+      "new_run": "legacy_no_prompt_empty_encoded_20261023/web/20261023_135101_no_prompt/20261023_135102_056535_execute",
+      "outcome": null,
+      "note": null,
+      "video_id": "V01"
+    }
+  ]
+}
