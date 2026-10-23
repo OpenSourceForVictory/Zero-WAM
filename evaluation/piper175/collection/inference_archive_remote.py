@@ -25,6 +25,8 @@ def decoder_command(spec, queue, checkpoint):
                 '--device', spec['device'], '--once']
     if spec.get('source_checkpoint'):
         command += ['--source-checkpoint', spec['source_checkpoint']]
+    if spec.get('threads'):
+        command += ['--threads', str(spec['threads'])]
     return command
 
 

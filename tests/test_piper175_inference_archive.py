@@ -23,9 +23,9 @@ def test_archive_paths():
 def test_r8000_archive_uses_cpu_decoder_script(tmp_path):
     script=tmp_path/'decode_predictions.py';script.write_text('')
     queue=tmp_path/'decode_work'/'piperpika_run'
-    command=decoder_command({'decoder_script':str(script),'device':'cpu'},queue,'/model')
+    command=decoder_command({'decoder_script':str(script),'device':'cpu','threads':8},queue,'/model')
     assert command[2]==str(script)
-    assert command[-2:]==['cpu','--once']
+    assert command[-4:]==['cpu','--once','--threads','8']
     assert '--root' in command and command[command.index('--root')+1]==str(queue.parent)
     with pytest.raises(FileNotFoundError):
         decoder_command({'decoder_script':str(tmp_path/'missing.py'),'device':'cpu'},queue,'/model')

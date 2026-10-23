@@ -157,7 +157,7 @@ if not target.is_file():
         with self.archive_lock:
             self.archive_one(job)
 
-    def decode_on_local_gpu(self, profile, source, work):
+    def decode_locally(self, profile, source, work):
         checkpoint=Path(profile['local_checkpoint'])
         weights=checkpoint/'vae/diffusion_pytorch_model.safetensors'
         digest=hashlib.sha256()
@@ -175,11 +175,24 @@ if not target.is_file():
         reset=json.loads((run/'reset.json').read_text())
         source_checkpoint=reset['response']['model_path']
         local_out=work/'gpu_export'
+        device=profile['decode_device']
+        if device=='cuda:0':
+            try:
+                free_mib=int(subprocess.check_output(
+                    ['nvidia-smi','--query-gpu=memory.free','--format=csv,noheader,nounits'],
+                    text=True,timeout=5).splitlines()[0].strip())
+            except (OSError,ValueError,subprocess.CalledProcessError,subprocess.TimeoutExpired,IndexError) as exc:
+                raise RuntimeError('无法检查本机 GPU 空闲显存，预测解码未启动') from exc
+            # The FP32 three-view VAE exceeded 4.5 GiB free during a live archive.
+            if free_mib < 8192:
+                device='cpu'
+                reporter=getattr(self.progress,'report',None)
+                if reporter:reporter(f'本机 GPU 仅余 {free_mib} MiB，改用 CPU 解码预测视频')
         spec=dict(source=str(run),trace_root=str(trace_root),output=str(local_out),
-                  code=str(Path(__file__).resolve().parents[3]),device='cuda:0',
+                  code=str(Path(__file__).resolve().parents[3]),device=device,
                   decoder_script=profile['local_decoder_script'],
                   checkpoint_override=str(checkpoint),source_checkpoint=source_checkpoint,
-                  reuse_decoded=False)
+                  reuse_decoded=True,threads=8 if device=='cpu' else 4)
         script=Path(__file__).with_name('inference_archive_remote.py').read_bytes()
         log=self.call([profile['local_python'],'-',json.dumps(spec)],input=script,timeout=7200)
         (work/'decode.log').write_bytes(log)
@@ -257,10 +270,10 @@ if not target.is_file():
             for p in incoming.iterdir():
                 if p.suffix in ('.json','.jsonl'):self.copy('29',str(p),out+'/metadata/'+p.name,True)
             stage('加载解码器并解码服务端预测视频',4)
-            local_gpu=profile['id']=='r8000' and profile.get('decode_device')=='cuda:0'
-            if local_gpu:
-                local_out=self.decode_on_local_gpu(profile,source,work)
-                stage('将本机 4090 预测结果上传到 29',5)
+            local_decode=profile['id']=='r8000' and profile.get('local_checkpoint')
+            if local_decode:
+                local_out=self.decode_locally(profile,source,work)
+                stage('将本机预测结果上传到 29',5)
                 self.copy('29',str(local_out/'predictions')+'/',out+'/predictions/',True)
                 for name in ('prediction_verification.json','server_reset.json'):
                     self.copy('29',str(local_out/name),out+'/'+name,True)
