@@ -630,6 +630,12 @@ def make_handler(console):
                     return self.send_video(video)
                 if path=='/api/inference/view':return self.send(200,console.inference_view())
                 if path=='/api/inference/history':return self.send(200,console.inference_history())
+                if path=='/api/inference/history-media':
+                    run=parse_qs(urlsplit(self.path).query).get('run',[''])[0]
+                    return self.send(200,console.history_media_status(run))
+                if path=='/api/inference/history-video':
+                    query=parse_qs(urlsplit(self.path).query)
+                    return self.send_video(console.history_video_path(query.get('run',[''])[0],query.get('kind',[''])[0]),browser_cache=True)
                 if path=='/api/inference/review-stats':return self.send(200,console.inference_review_stats())
                 if path in ('/api/inference/prediction','/api/inference/video'):
                     query=parse_qs(urlsplit(self.path).query);run=query.get('run',[''])[0];index=int(query.get('chunk',['0'])[0])
@@ -669,6 +675,7 @@ def make_handler(console):
                 if not isinstance(body,dict):raise ValueError('参数无效')
                 if self.path=='/api/inference/review':return self.send(200,console.mark_inference_review(body))
                 if self.path=='/api/inference/preview':return self.send(202,console.start_prediction_preview(body))
+                if self.path=='/api/inference/history-video':return self.send(202,console.request_history_prediction(body))
                 if self.path=='/api/inference/preferences':return self.send(200,console.save_inference_preferences(body))
                 if self.path!='/api/action':return self.send(404,{'error':'Not found'})
                 if body.get('action')=='inference_emergency':return self.send(200,console.do_inference_emergency(body))

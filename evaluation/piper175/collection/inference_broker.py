@@ -147,6 +147,40 @@ if not target.is_file():
     def preview_jobs(self):
         return [json.loads(p.read_text()) for p in sorted(self.root.glob('preview_*.json'),reverse=True)][:50]
 
+    def sync_history_video(self, body):
+        """Copy a saved run's full prediction video to the IPC for browser playback."""
+        run=safe_run(body.get('run',''))
+        profile=body.get('profile')
+        if profile not in self.config['profiles']:raise ValueError('Unknown server')
+        root=PurePosixPath(self.config['profiles'][profile]['trace_root'])
+        trace=PurePosixPath(body.get('trace_dir',''))
+        parts=trace.relative_to(root).parts
+        if len(parts)!=1 or not re.fullmatch(r'piperpika_[A-Za-z0-9_-]+',parts[0]):
+            raise ValueError('Prediction path does not match a run')
+        source=trace/'prediction_combined.mp4'
+        source_host=profile
+        probe='import sys;from pathlib import Path;p=Path(sys.argv[1]);print("ready" if p.is_file() and p.stat().st_size>0 else "missing")'
+        if self.ssh(profile,['python3','-c',probe,str(source)]).strip()!=b'ready':
+            matches=[]
+            for path in self.root.glob('job_*.json'):
+                try:job=json.loads(path.read_text())
+                except (OSError,ValueError):continue
+                if job.get('run')==run and job.get('profile')==profile and job.get('status')=='complete' and job.get('output'):
+                    matches.append(job)
+            if not matches:raise FileNotFoundError('服务端整段预测视频尚未解码；请等待解码或先归档此运行')
+            source=PurePosixPath(max(matches,key=lambda j:j.get('finished_at',0))['output'])/'predictions/prediction_combined.mp4'
+            source_host='29'
+        work=self.root/'history_video_cache'/profile/parts[0]
+        work.mkdir(parents=True,exist_ok=True)
+        local=work/'prediction_combined.mp4'
+        self.copy(source_host,str(source),str(local)+'.partial')
+        Path(str(local)+'.partial').replace(local)
+        destination=PurePosixPath(self.config['ipc_log_root'])/run/'server_predictions/prediction_combined.mp4'
+        self.ssh('ipc',['mkdir','-p',str(destination.parent)])
+        self.copy('ipc',str(local),str(destination)+'.partial',True)
+        self.ssh('ipc',['mv',str(destination)+'.partial',str(destination)])
+        return {'run':run,'bytes':local.stat().st_size,'status':'complete'}
+
     def enqueue_preview(self, body):
         run = safe_run(body['run'])
         profile = body['profile']
@@ -422,6 +456,7 @@ def handler(broker):
                 if self.path=='/prepare':return self.respond(200,broker.prepare(body))
                 if self.path=='/archive':return self.respond(202,broker.enqueue(body))
                 if self.path=='/preview':return self.respond(202,broker.enqueue_preview(body))
+                if self.path=='/history-video':return self.respond(200,broker.sync_history_video(body))
                 return self.respond(404,{'error':'Not found'})
             except Exception as exc:return self.respond(409,{'error':str(exc)})
     return Handler

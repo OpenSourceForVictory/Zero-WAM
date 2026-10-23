@@ -21,6 +21,8 @@ class InferenceConsole:
         self.inference_zero_process = None
         self.inference_result = None
         self.demo_cache_lock = threading.Lock()
+        self.history_video_lock = threading.Lock()
+        self.history_video_jobs = {}
         from web_console import ROOT
         state = ROOT/'.inference_last.json'
         try: self.inference_result = json.loads(state.read_text())
@@ -32,7 +34,8 @@ class InferenceConsole:
         request = Request(config['url']+endpoint, data=None if body is None else json.dumps(body).encode(),
                           headers={'X-Inference-Token':config['token'], 'Content-Type':'application/json'})
         try:
-            with urlopen(request, timeout=120 if endpoint in ('/prepare','/demo-video') or endpoint.startswith('/demo-video?') else 10) as response:
+            timeout=600 if endpoint=='/history-video' else 120 if endpoint in ('/prepare','/demo-video') or endpoint.startswith('/demo-video?') else 10
+            with urlopen(request, timeout=timeout) as response:
                 raw = response.read()
             return raw if binary else json.loads(raw)
         except Exception as exc:
@@ -69,9 +72,75 @@ class InferenceConsole:
                              'prompt':selected.get('prompt') if selected.get('use_prompt',True) else '',
                              'use_prompt':selected.get('use_prompt',True),
                              'finished':result is not None,
+                             'real_video_ready':(run/'combined.mp4').is_file(),
+                             'prediction_video_ready':(run/'server_predictions/prediction_combined.mp4').is_file(),
                              'review':review if isinstance(review,dict) and (review.get('outcome') in ('success','failure') or review.get('note')) else None,
                              'result':{k:result.get(k) for k in ('completed','stopped_by_user','error','sent_steps','task_success')} if result else None})
         return rows
+
+    def history_media_status(self, run):
+        path = self.inference_run_path(run)
+        with self.history_video_lock:
+            job = dict(self.history_video_jobs.get(run) or {})
+        return {'run':run,
+                'real_ready':(path/'combined.browser.mp4').is_file(),
+                'real_available':(path/'combined.mp4').is_file(),
+                'prediction_ready':(path/'server_predictions/prediction_combined.mp4').is_file(),
+                'sync':job}
+
+    def history_video_path(self, run, kind):
+        if kind not in ('real','prediction'):raise ValueError('视频类型无效')
+        path=self.inference_run_path(run)
+        video=path/'combined.browser.mp4' if kind=='real' else path/'server_predictions/prediction_combined.mp4'
+        if not video.is_file():raise FileNotFoundError('该运行的视频尚未保存或预测尚未解码')
+        return video
+
+    def request_history_prediction(self, body):
+        run=body.get('run')
+        path=self.inference_run_path(run)
+        with self.history_video_lock:
+            old=self.history_video_jobs.get(run)
+            if old and old.get('status')=='running':return self.history_media_status_unlocked(run,path)
+            self.history_video_jobs[run]={'status':'running','message':'正在准备历史视频','updated_at':time.time()}
+        def worker():
+            errors=[]
+            try:
+                original=path/'combined.mp4';browser=path/'combined.browser.mp4'
+                if original.is_file() and not browser.is_file():
+                    import imageio_ffmpeg
+                    ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
+                    temp=path/'combined.browser.partial.mp4'
+                    subprocess.run([ffmpeg,'-nostdin','-y','-v','error','-i',str(original),
+                                    '-c:v','libx264','-preset','veryfast','-crf','23',
+                                    '-pix_fmt','yuv420p','-threads','2','-an',
+                                    '-movflags','+faststart',str(temp)],check=True,timeout=600)
+                    temp.replace(browser)
+            except Exception as exc:
+                errors.append('实拍视频处理失败：'+str(exc))
+            try:
+                if not (path/'server_predictions/prediction_combined.mp4').is_file():
+                    rows=self.tail_records(path/'prediction_artifacts.jsonl')
+                    sources={str(Path(row['latent_path']).parent) for row in rows if row.get('latent_path')}
+                    if len(sources)!=1:raise ValueError('该次运行没有唯一的服务端预测记录')
+                    request=json.loads((path.parent/'request.json').read_text()).get('request') or {}
+                    profile=request.get('profile')
+                    if profile not in ('29','r8000'):raise ValueError('该次运行没有可用的服务端配置')
+                    with self.history_video_lock:self.history_video_jobs[run]['message']='正在从服务端同步预测视频'
+                    self.inference_bridge('/history-video',{'run':run,'profile':profile,'trace_dir':sources.pop()})
+            except Exception as exc:
+                errors.append('预测视频同步失败：'+str(exc))
+            status={'status':'failed' if errors else 'complete',
+                    'message':'；'.join(errors) if errors else '实拍与预测视频已就绪',
+                    'updated_at':time.time()}
+            with self.history_video_lock:self.history_video_jobs[run]=status
+        threading.Thread(target=worker,daemon=True).start()
+        return self.history_media_status(run)
+
+    def history_media_status_unlocked(self,run,path):
+        return {'run':run,'real_ready':(path/'combined.browser.mp4').is_file(),
+                'real_available':(path/'combined.mp4').is_file(),
+                'prediction_ready':(path/'server_predictions/prediction_combined.mp4').is_file(),
+                'sync':dict(self.history_video_jobs.get(run) or {})}
 
     def inference_review_stats(self):
         from web_console import ROOT
