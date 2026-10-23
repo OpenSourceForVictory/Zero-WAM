@@ -191,7 +191,8 @@ class InferenceConsole:
         logfile = output/'client.log'
         env = os.environ.copy()
         env.update(ZERO_WAM_ICL_LATENT_PATH=endpoint['latent_path'],
-                   ZERO_WAM_VIDEO_GUIDANCE_SCALE='1', ZERO_WAM_ICL_GUIDANCE_SCALE='5')
+                   ZERO_WAM_VIDEO_GUIDANCE_SCALE='1' if body.get('use_prompt',True) else '-1',
+                   ZERO_WAM_ICL_GUIDANCE_SCALE='5')
         env.pop('ZERO_WAM_ICL_ID', None)
         command = ['bash', str(client/'run.sh'), '--'+body['mode'], '--action-contract', 'piperpika',
                    '--prompt', body['prompt'].strip() if body.get('use_prompt',True) else '', '--server_host', endpoint['host'], '--server_port', str(endpoint['port']),

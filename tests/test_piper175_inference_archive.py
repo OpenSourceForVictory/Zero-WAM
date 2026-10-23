@@ -270,6 +270,7 @@ def test_start_uses_selected_host_but_never_auto_uploads(tmp_path,monkeypatch,us
     assert c.inference_result['use_prompt'] is use_prompt
     assert captured['command'][captured['command'].index('--server_host')+1]=='192.0.2.1'
     assert captured['env']['ZERO_WAM_ICL_LATENT_PATH']=='/r8000/V01.pth'
+    assert captured['env']['ZERO_WAM_VIDEO_GUIDANCE_SCALE']==('1' if use_prompt else '-1')
     assert events==['exited']
     assert c.inference_result['run'].endswith('/test_execute')
     c.closed.set()
