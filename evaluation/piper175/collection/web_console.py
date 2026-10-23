@@ -113,9 +113,11 @@ class Console(InferenceConsole):
             raise ValueError('示教选择无效')
         if body.get('profile') not in ('29','r8000'):raise ValueError('推理服务器无效')
         if body.get('mode') not in ('check','shadow','execute'):raise ValueError('运行模式无效')
+        if type(body.get('use_prompt',True)) is not bool:raise ValueError('文本 prompt 模式无效')
         if type(body.get('max_chunks')) is not int or not 0<=body['max_chunks']<=10000:raise ValueError('chunk 数无效')
         if body.get('tab') not in ('data','control','robot','inference'):raise ValueError('页签无效')
         values={k:body[k] for k in ('video_id','profile','mode','max_chunks','tab')}
+        values['use_prompt']=body.get('use_prompt',True)
         values['updated_at']=int(time.time()*1000)
         path=self.root/'.inference_ui_preferences.json'
         with self.lock:

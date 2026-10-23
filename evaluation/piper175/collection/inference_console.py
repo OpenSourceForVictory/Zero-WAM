@@ -63,7 +63,8 @@ class InferenceConsole:
                              'video_id':selected.get('video_id'),
                              'profile':selected.get('profile'),
                              'mode':selected.get('mode'),
-                             'prompt':selected.get('prompt'),
+                             'prompt':selected.get('prompt') if selected.get('use_prompt',True) else '',
+                             'use_prompt':selected.get('use_prompt',True),
                              'finished':result is not None,
                              'review':review if isinstance(review,dict) and (review.get('outcome') in ('success','failure') or review.get('note')) else None,
                              'result':{k:result.get(k) for k in ('completed','stopped_by_user','error','sent_steps','task_success')} if result else None})
@@ -73,16 +74,20 @@ class InferenceConsole:
     def inference_review_stats(self):
         from web_console import ROOT
         base=ROOT.parent/'inference_client/inference_logs/web'
-        counts={'success':0,'failure':0}
+        counts={mode:{'success':0,'failure':0} for mode in ('with_prompt','no_prompt')}
         for p in base.glob('[0-9]*/*/manual_evaluation.json'):
             if not (p.parent/'result.json').is_file():continue
             try:
                 if json.loads((p.parent/'manifest.json').read_text()).get('mode')!='execute':continue
                 outcome=json.loads(p.read_text()).get('outcome')
+                request=json.loads((p.parent.parent/'request.json').read_text()).get('request') or {}
             except (OSError,ValueError,AttributeError):continue
-            if outcome in counts:counts[outcome]+=1
-        reviewed=sum(counts.values())
-        return {**counts,'reviewed':reviewed,'success_rate':round(counts['success']/reviewed*100,1) if reviewed else None}
+            mode='with_prompt' if request.get('use_prompt',True) else 'no_prompt'
+            if outcome in ('success','failure'):counts[mode][outcome]+=1
+        for row in counts.values():
+            row['reviewed']=row['success']+row['failure']
+            row['success_rate']=round(row['success']/row['reviewed']*100,1) if row['reviewed'] else None
+        return counts
 
     def mark_inference_review(self, body):
         run=body.get('run');outcome=body.get('outcome')
@@ -154,7 +159,11 @@ class InferenceConsole:
         if body.get('mode') not in ('check', 'shadow', 'execute'):
             raise ValueError('推理模式无效')
         if body.get('ready') is not True:
-            raise ValueError('请确认示教布局、prompt 和现场状态')
+            raise ValueError('请确认示教布局和现场状态')
+        if type(body.get('use_prompt',True)) is not bool:
+            raise ValueError('文本 prompt 模式无效')
+        if body.get('use_prompt',True) is False and not body.get('profile'):
+            raise ValueError('无 prompt 模式须选择 29 或 R8000，以准备不含文本的示教编码')
         if type(body.get('max_chunks')) is not int or not 0 <= body['max_chunks'] <= 10000:
             raise ValueError('chunk 数须为 0–10000，0 表示连续执行')
         if not body.get('profile') and (type(body.get('port')) is not int or not 1 <= body['port'] <= 65535):
@@ -176,7 +185,8 @@ class InferenceConsole:
         endpoint = self.inference_bridge('/prepare',body) if body.get('profile') else {'host':'127.0.0.1','port':body['port'],'latent_path':row['latent_path']}
         runtime = ROOT.parent
         client = runtime/'inference_client'
-        output = client/'inference_logs/web'/time.strftime('%Y%m%d_%H%M%S')
+        prompt_mode = 'with_prompt' if body.get('use_prompt',True) else 'no_prompt'
+        output = client/'inference_logs/web'/(time.strftime('%Y%m%d_%H%M%S')+'_'+prompt_mode)
         output.mkdir(parents=True, exist_ok=False)
         logfile = output/'client.log'
         env = os.environ.copy()
@@ -184,7 +194,7 @@ class InferenceConsole:
                    ZERO_WAM_VIDEO_GUIDANCE_SCALE='1', ZERO_WAM_ICL_GUIDANCE_SCALE='5')
         env.pop('ZERO_WAM_ICL_ID', None)
         command = ['bash', str(client/'run.sh'), '--'+body['mode'], '--action-contract', 'piperpika',
-                   '--prompt', body['prompt'].strip(), '--server_host', endpoint['host'], '--server_port', str(endpoint['port']),
+                   '--prompt', body['prompt'].strip() if body.get('use_prompt',True) else '', '--server_host', endpoint['host'], '--server_port', str(endpoint['port']),
                    '--max_chunks', str(body['max_chunks']), '--save_dir', str(output), '--monitor-file', str(output/'monitor.json')]
         if body['mode'] != 'check':
             command.append('--record-continuous')
@@ -207,7 +217,7 @@ class InferenceConsole:
                         subprocess.run(['bash', str(client/'runtime_config.sh'), 'stop'], check=True)
                         raise
                     self.inference_process = proc
-                    self.inference_result = {'output':str(output), 'log':str(logfile), 'video_id':row['video_id'], 'mode':body['mode'], 'profile':body.get('profile')}
+                    self.inference_result = {'output':str(output), 'log':str(logfile), 'video_id':row['video_id'], 'mode':body['mode'], 'profile':body.get('profile'), 'use_prompt':body.get('use_prompt',True)}
                     self.save_inference_result()
                 self.log('推理已启动：'+row['video_id']+'；日志：'+str(logfile))
                 try:

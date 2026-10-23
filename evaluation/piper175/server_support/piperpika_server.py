@@ -64,6 +64,9 @@ def main():
                 result['video_inference_steps'] = self.job_config.num_inference_steps
                 result['action_inference_steps'] = self.job_config.action_num_inference_steps
                 result['target_text_enabled'] = self.video_guidance_scale >= 0
+                result['text_conditioning'] = ('video_only_fixed_empty_v1' if getattr(self, 'video_only', False)
+                                               else 'target_text_disabled' if self.video_guidance_scale < 0
+                                               else 'language_enabled')
                 result['video_guidance_scale'] = self.video_guidance_scale
                 result['icl_guidance_scale'] = self.icl_guidance_scale
                 result['action_order'] = [f'{side}_joint_{i}' for side in ('left', 'right') for i in range(6)] + ['left_gripper', 'right_gripper']

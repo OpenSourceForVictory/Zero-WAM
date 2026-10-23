@@ -78,8 +78,19 @@ R8000 常驻的 `zero-wam-prediction-decoder.service` 也须与当前权重一�
 
 工控机 `collection/inference_demos.json`、本机归档服务目录、验证 manifest、配对表副本及布局指南已同步修正。当前 V05 旧 prompt 的运行 `web/20261022_213130/20261022_213130_621648_execute` 已通过软件停止；它不能用于评估模型遵循正确 V05 任务的能力。修改后须刷新界面重新选择并核对布局。32 条训练示教均按每段多个时间点抽样查看物体、目标容器和顺序，未发现同类不一致；这不等同于逐帧审核。
 
+### 无文本 prompt 对照
+
+推理页可关闭“发送文本 prompt”。此时客户端在 reset、预测观测和 KV 观测中使用空字符串；服务端要求空字符串而不接受 `null`。2026-10-23 的纯视频修订使服务端跳过本次文本编码，目标侧和示教侧统一使用模型配置中的固定 `empty_text_emb.pt`，并将 `video_guidance_scale` 设为 -1，ICL CFG 保持 5。归档服务从所选示教生成独立的 `no_prompt/*_noprompt.pth`，保留视频 latent、移除原有的 `text_emb`；服务端对空 prompt 请求也会强制覆盖示教侧文本 embedding。原始示教编码不覆盖。运行目录增加 `_with_prompt` 或 `_no_prompt` 后缀，上传目录也包含模式；历史页签和人工成功率按模式分别统计。旧记录按有 prompt 归类，检查/仅预测及未标记运行不纳入成功率。
+
+2026-10-23 修复：旧版 `_reset_icl` 的 `if not prompt` 会拒绝空字符串。29 和 R8000 现允许在启用人类示教且指定视频/latent 时传入空字符串；仍拒绝 `null` 和同时缺少文字与示教的请求。部署此代码需要重启模型进程，之后每次通过网页切换模式仅需正常 reset。`tests/test_icl_server.py::test_video_only_reset_uses_fixed_empty_text_and_caches_demo` 覆盖固定空文本和示教缓存；`server_support/smoke_empty_prompt.py` 使用保存的相机观测执行真实 reset 和单 chunk 预测，不连接机器人硬件。历史的空字符串编码验证数据见下文，新版固定空 embedding 的验证数据见文末。
+
+29 本机 WebSocket 同样通过空文本 reset（1.875 秒）和单块预测（11.537 秒），结果见 `artifacts/no_prompt_smoke_20261023/{r8000,29}.json`。检查时工控机的 29 隧道端口未监听，因此该次 29 验证不代表工控机到 29 的隧道可用。R8000 测试由工控机直接访问完成。
+
 上传按钮下仅显示当前运行最近一次上传任务（按 run、服务器匹配，并取最新任务 ID）的进度日志。其他上传任务保留在默认折叠的“历史上传记录”，不混入本次日志；“历史推理运行”单独列出每次执行及其归档状态。无本次任务时明确显示尚未上传。
 
 推理页现列出最近 50 条实际运行目录（`inference_logs/web`），每条读取 `request.json`、`manifest.json`、`result.json`，显示示教 ID、服务器、执行结果、下发步数与对应归档任务状态。尚无 `result.json` 的运行不允许归档；已结束且未归档或归档失败的运行可在历史行手动提交。归档按 run 和 profile 精确关联，不会把旧失败任务当作新运行结果。列表通过 `/api/inference/history` 提供，页面每两秒刷新。
 
 历史真机执行支持人工标记“成功 / 失败 / 清除标记”，以及最多 1000 字的人工备注。可单独保存备注而不标记结果，也可填写备注后标记；清除成功/失败标记时保留备注，清空备注后保存才删除该人工记录。标记和备注写入该运行目录的 `manual_evaluation.json`，独立于客户端的 completed/stopped_by_user 和归档状态；页面仅对已结束的 execute 运行开放标记。`/api/inference/review-stats` 从所有已标记的历史 execute 运行计算成功率，未标记、检查和仅预测运行不纳入分母。标记可修改，页面每两秒刷新历史记录和汇总。历史运行的上传、失败重试与人工标记在另一条推理正在执行时仍可操作；但正在执行的运行须先写出 result.json 才可操作。后续归档会将已有标记作为 JSON 元数据复制；归档完成后再改标记不会自动改写 29 上既有归档快照。
+
+
+2026-10-23 纯人类视频模式验证：选择“关闭发送文本 prompt”后，客户端仍用 `prompt=""` 标识本次请求；服务端的 `_reset_icl` 检测空字符串，直接加载 `empty_text_emb.pt`，跳过本次 T5 文本编码，并对 ICL 示教侧覆盖其内嵌文本 embedding。服务端强制 `video_guidance_scale=-1`、保持 `icl_guidance_scale=5`，reset 回传 `text_conditioning=video_only_fixed_empty_v1` 与 `target_text_enabled=false`。有 prompt 模式仍调用原文本编码器。29 和 R8000 的 `wan_va_server.py` 与 `evaluation/piperpika/server.py` 已部署并重启；原文件分别保存为 `.before_video_only_fixed_20261023`。使用保存的 V05 初始三相机观测，不接机械臂，各发一次 reset 和预测：R8000 reset 1.120 秒、预测 1.829 秒；29 reset 1.498 秒、预测 10.335 秒，均返回 14×2×16 有限动作。报告：`artifacts/video_only_fixed_20261023/{r8000,29}.json`。R8000 的 5 项服务端测试通过；29 的环境没有 pytest，以真实无动作预测验证。

@@ -538,7 +538,9 @@ class VA_Server:
             raise ValueError(
                 f"ICL latent has {latent.shape[1]} channels; expected {expected_channels}"
             )
-        text_emb = self.prompt_embeds if text_emb is None else text_emb.to(self.device)
+        # An explicit empty request overrides even text stored in a demo latent.
+        text_emb = (self.prompt_embeds if getattr(self, "video_only", False) or text_emb is None
+                    else text_emb.to(self.device))
         latent = latent.to(device=self.device, dtype=self.dtype)
         patch_size = self.transformer.patch_size
         grid_id = get_mesh_id(
@@ -592,8 +594,10 @@ class VA_Server:
         video_guidance_scale,
         icl_guidance_scale,
     ):
-        if not prompt:
-            raise ValueError("Robotwin ICL inference requires a prompt")
+        if not isinstance(prompt, str):
+            raise ValueError("ICL prompt must be a string; use an empty string for video-only inference")
+        if not prompt.strip() and not (use_icl and (icl_video_path or icl_latent_path)):
+            raise ValueError("An empty prompt requires an enabled human-video demonstration")
         self.chunk_idx = 0
         self.init_latent = None
         self.last_predicted_latents = None
@@ -625,18 +629,25 @@ class VA_Server:
         ).reshape(-1, 1, 1)
         self.action_norm_method = self.job_config.action_norm_method
 
-        self.prompt_embeds, self.negative_prompt_embeds = self.encode_prompt(
-            prompt=prompt,
-            negative_prompt="",
-            do_classifier_free_guidance=True,
-            max_sequence_length=512,
-            device=self.device,
-            dtype=self.dtype,
-        )
-        if self.empty_text_emb is not None:
-            self.negative_prompt_embeds = self.empty_text_emb.clone()
+        self.video_only = not prompt.strip()
+        if self.video_only:
+            if self.empty_text_emb is None:
+                raise ValueError("Video-only inference requires the fixed empty_text_emb asset")
+            self.prompt_embeds = self.empty_text_emb.to(device=self.device, dtype=self.dtype).clone()
+            self.negative_prompt_embeds = self.prompt_embeds.clone()
+        else:
+            self.prompt_embeds, self.negative_prompt_embeds = self.encode_prompt(
+                prompt=prompt,
+                negative_prompt="",
+                do_classifier_free_guidance=True,
+                max_sequence_length=512,
+                device=self.device,
+                dtype=self.dtype,
+            )
+            if self.empty_text_emb is not None:
+                self.negative_prompt_embeds = self.empty_text_emb.clone()
         self.use_icl = bool(use_icl)
-        self.video_guidance_scale = float(video_guidance_scale)
+        self.video_guidance_scale = -1.0 if self.video_only else float(video_guidance_scale)
         self.icl_guidance_scale = float(icl_guidance_scale)
         self.use_icl_cfg = self.use_icl and self.icl_guidance_scale > 1.0
         self.target_text_cfg_active = (

@@ -1,10 +1,50 @@
 from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
 
 import torch
 
 from wan_va.configs.va_robotwin_cfg import va_robotwin_cfg
 from wan_va.modules.icl_model import PREDICTION_CACHE_TYPE
 from wan_va.wan_va_server import VA_Server
+
+
+def test_video_only_reset_uses_fixed_empty_text_and_caches_demo():
+    server = VA_Server.__new__(VA_Server)
+    server.device = torch.device('cpu')
+    server.dtype = torch.float32
+    server.env_type = 'piperpika'
+    server.cache_name = 'test'
+    server.transformer = Mock()
+    server.streaming_vae = Mock()
+    server.streaming_vae_half = None
+    server.empty_text_emb = torch.full((1,2,8), 0.25)
+    server.job_config = SimpleNamespace(action_per_frame=16, height=32, width=32,
+        obs_cam_keys=['high'], action_dim=14, used_action_channel_ids=list(range(14)),
+        norm_stat={'q01':[0]*14,'q99':[1]*14}, action_norm_method='quantiles')
+    server.encode_prompt = Mock(return_value=(torch.zeros(1,2,8),torch.zeros(1,2,8)))
+    server._cache_icl_context = Mock()
+    server._reset_icl('', True, '', '/demo_noprompt.pth', 1, 5)
+    server.encode_prompt.assert_not_called()
+    assert torch.equal(server.target_prompt_embeds, server.empty_text_emb)
+    assert server.video_guidance_scale == -1
+    server._cache_icl_context.assert_called_once_with('', '/demo_noprompt.pth')
+    assert server.use_icl_cfg and torch.equal(server.target_prompt_embeds, server.prompt_embeds)
+    server._load_or_encode_icl = Mock(return_value=(torch.zeros(1, 4, 1, 2, 2), torch.ones(1,2,8)))
+    server.vae = SimpleNamespace(config=SimpleNamespace(latents_mean=[0]*4))
+    server.transformer.patch_size = (1,1,1)
+    server.job_config.icl_rope_h = 24
+    VA_Server._cache_icl_context(server, '', '/demo_with_text.pth')
+    cached = server.transformer.call_args.args[0]['text_emb']
+    assert torch.equal(cached, server.empty_text_emb)
+    server._reset_icl('pick object', True, '', '/demo.pth', 1, 5)
+    assert not server.video_only and server.video_guidance_scale == 1
+    server.encode_prompt.assert_called_once()
+    with pytest.raises(ValueError, match='demonstration'):
+        server._reset_icl('', False, '', '', 1, 5)
+    with pytest.raises(ValueError, match='string'):
+        server._reset_icl(None, True, '', '/demo.pth', 1, 5)
 
 
 class _Scheduler:

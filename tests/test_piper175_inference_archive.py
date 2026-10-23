@@ -61,6 +61,30 @@ def test_corrected_demo_uses_versioned_latent_name(tmp_path,monkeypatch):
     assert transfers[1][2]==result['latent_path']
 
 
+def test_no_prompt_uses_text_free_demo_on_both_servers(tmp_path,monkeypatch):
+    source='/server/aligned_prompt/V05_aligned.pth'
+    b=Broker({'state_dir':str(tmp_path),'demos':[{'video_id':'V05','latent_path':source,'prompt':'aligned task'}],
+              'profiles':{'29':{'id':'29','server_port':29056,'client_host':'29','client_port':29056},
+                          'r8000':{'id':'r8000','server_port':29056,'demo_root':'/r8000/demos',
+                                   'client_host':'r8000','client_port':29056}}})
+    calls=[];transfers=[]
+    monkeypatch.setattr(b,'ssh',lambda host,command,**kw:calls.append((host,command)))
+    def copy(host,src,dst,upload=False):
+        transfers.append((host,src,dst,upload))
+        if not upload:Path(dst).write_bytes(b'latent')
+    monkeypatch.setattr(b,'copy',copy)
+    body={'profile':'29','video_id':'V05','prompt':'aligned task','use_prompt':False}
+    result=b.prepare(body)
+    assert result['latent_path']=='/server/aligned_prompt/no_prompt/V05_aligned_noprompt.pth'
+    assert result['use_prompt'] is False
+    assert any(host=='29' and 'text_emb' in command[2] and 'pop' in command[2] for host,command in calls)
+    result=b.prepare({**body,'profile':'r8000'})
+    assert result['latent_path']=='/r8000/demos/V05_aligned_noprompt.pth'
+    assert transfers[0][1]=='/server/aligned_prompt/no_prompt/V05_aligned_noprompt.pth'
+    with pytest.raises(ValueError,match='模式无效'):
+        b.prepare({**body,'use_prompt':'false'})
+
+
 def test_restart_marks_unfinished_jobs_retryable(tmp_path):
     (tmp_path/'job_1.json').write_text(json.dumps({'status':'running'}))
     b=Broker({'state_dir':str(tmp_path)})
@@ -123,27 +147,48 @@ def test_manual_outcome_updates_and_success_rate(tmp_path,monkeypatch):
     monkeypatch.setattr(web,'ROOT',root)
     console=web.Console.__new__(web.Console)
     name='web/20261022_191614/20261022_191614_509092_execute'
-    assert console.inference_review_stats()['success_rate'] is None
+    assert console.inference_review_stats()['with_prompt']['success_rate'] is None
     console.mark_inference_review({'run':name,'outcome':'success','note':'抓到物体，但未放进容器'})
     assert console.inference_history()[0]['review']['outcome']=='success'
     assert console.inference_history()[0]['review']['note']=='抓到物体，但未放进容器'
-    assert console.inference_review_stats()=={'success':1,'failure':0,'reviewed':1,'success_rate':100.0}
+    assert console.inference_review_stats()['with_prompt']=={'success':1,'failure':0,'reviewed':1,'success_rate':100.0}
     console.mark_inference_review({'run':name,'outcome':'failure'})
     assert console.inference_history()[0]['review']['note']=='抓到物体，但未放进容器'
-    assert console.inference_review_stats()['success_rate']==0.0
+    assert console.inference_review_stats()['with_prompt']['success_rate']==0.0
     with pytest.raises(ValueError,match='备注'):
         console.mark_inference_review({'run':name,'outcome':'failure','note':'x'*1001})
     console.mark_inference_review({'run':name,'outcome':None})
-    assert console.inference_review_stats()['reviewed']==0
+    assert console.inference_review_stats()['with_prompt']['reviewed']==0
     assert console.inference_history()[0]['review']['note']=='抓到物体，但未放进容器'
     console.mark_inference_review({'run':name,'outcome':None,'note':''})
     assert console.inference_history()[0]['review'] is None
     console.mark_inference_review({'run':name,'outcome':None,'note':'场景光照较暗'})
-    assert console.inference_review_stats()['reviewed']==0
+    assert console.inference_review_stats()['with_prompt']['reviewed']==0
     assert console.inference_history()[0]['review']['note']=='场景光照较暗'
     (run/'result.json').unlink()
     with pytest.raises(ValueError,match='尚未结束'):
         console.mark_inference_review({'run':name,'outcome':'success'})
+
+
+def test_history_and_success_rate_split_by_prompt_mode(tmp_path,monkeypatch):
+    root=tmp_path/'runtime/collection';root.mkdir(parents=True)
+    base=root.parent/'inference_client/inference_logs/web'
+    for mode,outcome in [('with_prompt','success'),('no_prompt','failure')]:
+        parent=base/('20261023_120000_'+mode)
+        run=parent/('20261023_120001_'+mode+'_execute')
+        run.mkdir(parents=True)
+        request={'mode':'execute','video_id':'V05','prompt':'aligned task','use_prompt':mode=='with_prompt'}
+        (parent/'request.json').write_text(json.dumps({'request':request}))
+        (run/'manifest.json').write_text(json.dumps({'mode':'execute','prompt':request['prompt'] if request['use_prompt'] else ''}))
+        (run/'result.json').write_text('{}')
+        (run/'manual_evaluation.json').write_text(json.dumps({'outcome':outcome}))
+    monkeypatch.setattr(web,'ROOT',root)
+    console=web.Console.__new__(web.Console)
+    history=console.inference_history()
+    assert {(r['use_prompt'],r['prompt']) for r in history}=={(True,'aligned task'),(False,'')}
+    stats=console.inference_review_stats()
+    assert stats['with_prompt']['success_rate']==100.0
+    assert stats['no_prompt']['success_rate']==0.0
 
 
 def test_demo_preview_cached_once_and_range_is_bounded(tmp_path,monkeypatch):
@@ -200,7 +245,8 @@ def test_profile_prompt_must_match_encoded_demo(tmp_path,monkeypatch):
     c.closed.set()
 
 
-def test_start_uses_selected_host_but_never_auto_uploads(tmp_path,monkeypatch):
+@pytest.mark.parametrize('use_prompt',[True,False])
+def test_start_uses_selected_host_but_never_auto_uploads(tmp_path,monkeypatch,use_prompt):
     import inference_console
     import enable_zero
     runtime=tmp_path/'runtime';root=runtime/'collection';root.mkdir(parents=True)
@@ -218,7 +264,10 @@ def test_start_uses_selected_host_but_never_auto_uploads(tmp_path,monkeypatch):
         return proc
     monkeypatch.setattr(inference_console.subprocess,'Popen',popen)
     monkeypatch.setattr(c,'do_inference_archive',lambda b:events.append('archive'))
-    c.do_inference_start(dict(profile='r8000',prompt='task',mode='execute',max_chunks=0,auto_upload=True,upload_target='/results'))
+    c.do_inference_start(dict(profile='r8000',prompt='task',use_prompt=use_prompt,mode='execute',max_chunks=0,auto_upload=True,upload_target='/results'))
+    assert captured['command'][captured['command'].index('--prompt')+1]==('task' if use_prompt else '')
+    assert Path(c.inference_result['output']).name.endswith('_with_prompt' if use_prompt else '_no_prompt')
+    assert c.inference_result['use_prompt'] is use_prompt
     assert captured['command'][captured['command'].index('--server_host')+1]=='192.0.2.1'
     assert captured['env']['ZERO_WAM_ICL_LATENT_PATH']=='/r8000/V01.pth'
     assert events==['exited']

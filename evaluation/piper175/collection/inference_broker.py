@@ -90,25 +90,51 @@ class Broker:
 
     def prepare(self, body):
         profile = self.config['profiles'][body['profile']]; demo = self.demo(body['video_id'])
+        use_prompt = body.get('use_prompt', True)
+        if type(use_prompt) is not bool:
+            raise ValueError('文本 prompt 模式无效')
         if body.get('prompt', '').strip() != demo['prompt'].strip():
             raise ValueError('示教视频与 prompt 配对已更新，请刷新页面后重新核对布局')
         if body.get('auto_upload'):safe_target(body['upload_target'],self.config['archive_root'])
         self.ssh(profile['id'], ['python3','-c','import socket,sys;socket.create_connection(("127.0.0.1",int(sys.argv[1])),5).close()',str(profile['server_port'])])
         latent = demo['latent_path']
+        if not use_prompt:
+            source = PurePosixPath(latent)
+            latent = str(source.parent/'no_prompt'/(source.stem+'_noprompt.pth'))
+            script = '''import os,sys
+from pathlib import Path
+source,target=map(Path,sys.argv[1:3])
+target.parent.mkdir(parents=True,exist_ok=True)
+if not target.is_file():
+    import torch
+    data=torch.load(source,map_location="cpu",weights_only=False)
+    if not isinstance(data,dict):raise TypeError("Demonstration latent must be a dictionary")
+    data.pop("text_emb",None)
+    data["prompt"]=""
+    data["text_conditioning"]="empty_reset_prompt"
+    temp=target.with_suffix(".partial.pth")
+    torch.save(data,temp)
+    os.replace(temp,target)
+'''
+            python = self.config['profiles']['29'].get('latent_python', '/mnt/sfs_turbo/public/apps/miniforge3/envs/lingbot-vggt/bin/python')
+            self.ssh('29', [python,'-c',script,demo['latent_path'],latent], timeout=120)
+        source_latent = latent
         if profile['id'] != '29':
             # A corrected demo gets a new source basename so neither the cache nor
             # the remote server can silently reuse an older prompt embedding.
-            latent_name = PurePosixPath(demo['latent_path']).name
+            latent_name = PurePosixPath(latent).name
             if not re.fullmatch(r'[A-Za-z0-9_.-]+\.pth', latent_name):
                 raise ValueError('Invalid latent filename')
-            latent = profile['demo_root']+'/'+latent_name
+            remote_latent = profile['demo_root']+'/'+latent_name
             cache = self.root/'latents'; cache.mkdir(exist_ok=True)
             p = cache/latent_name
-            if not p.exists(): self.copy('29', demo['latent_path'], str(p))
-            self.ssh(profile['id'], ['mkdir','-p',profile['demo_root']]); self.copy(profile['id'],str(p),latent,True)
+            if not p.exists(): self.copy('29', source_latent, str(p))
+            self.ssh(profile['id'], ['mkdir','-p',profile['demo_root']]); self.copy(profile['id'],str(p),remote_latent,True)
+            latent = remote_latent
         # Socket probe only: never reset or consume a server session during preparation.
         self.ssh(profile['id'], ['python3','-c','import sys;from pathlib import Path;assert Path(sys.argv[1]).is_file()',latent])
-        return {'host':profile['client_host'], 'port':profile['client_port'], 'latent_path':latent}
+        return {'host':profile['client_host'], 'port':profile['client_port'], 'latent_path':latent,
+                'use_prompt':use_prompt}
 
     def jobs(self):
         return [json.loads(p.read_text()) for p in sorted(self.root.glob('job_*.json'),reverse=True)][:50]
@@ -189,8 +215,15 @@ class Broker:
                        '--include=*.json','--include=*.jsonl','--exclude=*',
                        cfg['address']+':'+run+'/',str(incoming)+'/'], timeout=3600)
             manifest=json.loads((incoming/'manifest.json').read_text())
-            matches=[d for d in self.config['demos'] if d['latent_path']==manifest.get('icl_latent_path') or
-                     (job['profile']=='r8000' and manifest.get('icl_latent_path')==self.config['profiles']['r8000']['demo_root']+'/'+PurePosixPath(d['latent_path']).name)]
+            def demo_paths(d):
+                source=PurePosixPath(d['latent_path'])
+                plain=source.parent/'no_prompt'/(source.stem+'_noprompt.pth')
+                paths={str(source),str(plain)}
+                if job['profile']=='r8000':
+                    root=self.config['profiles']['r8000']['demo_root']
+                    paths.update((root+'/'+source.name,root+'/'+plain.name))
+                return paths
+            matches=[d for d in self.config['demos'] if manifest.get('icl_latent_path') in demo_paths(d)]
             atomic_json(incoming/'demo_selection.json',{'matches':matches,'prompt':manifest.get('prompt'),'server':job['profile']})
             result=json.loads((incoming/'result.json').read_text()) # Only finalized runs may be archived.
             real=incoming/'combined.mp4'
@@ -213,7 +246,9 @@ class Broker:
             demo_id=matches[0]['video_id'] if len(matches)==1 else 'unregistered_demo'
             if not re.fullmatch(r'[A-Za-z0-9_-]+',demo_id):raise ValueError('Invalid demo identifier')
             job['demo_id']=demo_id
-            out=job['target']+'/'+job['profile']+'_'+demo_id+'_'+PurePosixPath(job['run']).name
+            prompt_mode='no_prompt' if manifest.get('prompt')=='' else 'with_prompt'
+            job['use_prompt']=prompt_mode=='with_prompt'
+            out=job['target']+'/'+job['profile']+'_'+demo_id+'_'+prompt_mode+'_'+PurePosixPath(job['run']).name
             job['output']=out
             stage('上传实拍与运行信息到 29',3)
             self.ssh('29',['mkdir','-p',out+'/real',out+'/metadata'])
