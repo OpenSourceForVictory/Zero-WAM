@@ -74,6 +74,8 @@ R8000 归档配置使用 `decode_device=cuda:0`、`local_python`、`local_decode
 
 同日按用户要求重启 R8000 的 `zero-wam-oct21-r8000.service`。重启后端口 29056 监听正常；使用 V08 对齐后的示教 latent 和带文本 prompt 做无机械臂的 reset 检查，返回权重路径为 `piperpika_checkpoint_eval_20261021/best_model`，文本条件启用、视频/动作步数 4/10、chunk 2、引导 1/5。此检查只验证重启后的请求路径，不代表 V08 真机抓放结果改善。
 
+注意：这次 reset 检查与用户随后启动的 V08 真机执行重叠，R8000 当时允许多 WebSocket 客户端共享同一个可变推理会话。第二条连接的 reset 清除了正在运行的流式 VAE/KV 缓存，真机会话在第 10 个 chunk 的 KV 更新时报张量时间维 8/4 不匹配并停止发送动作。这是并发诊断干扰，不能计作模型对 V08 的任务失败。事故后在真机空闲时重启服务，给 R8000 的 `server_utils.py` 和 WebSocket 服务模块启用 `single_client=True`；实测第一条连接可接收元数据，第二条连接被以 1013 `Inference session already in use` 拒绝。后续健康检查只检查监听/HTTP `/healthz`，不要在真机运行时发送 reset 或 predict。R8000 两个部署文件均保留 `.before_single_client_20261023` 备份。
+
 R8000 常驻的 `zero-wam-prediction-decoder.service` 也须与当前权重一致；其启动脚本 `start_prediction_decoder_cpu.sh` 的 `--checkpoint` 现指向 `/data/Zero-WAM/models/piperpika_checkpoint_eval_20261021/best_model`，`decoder.env` 的 `DECODER_SINCE` 从新权重首次服务记录起算。切换权重时同时核对这两处，否则旧解码器会把新 `.pt` 标成 checkpoint mismatch。归档任务有独立解码队列，可在常驻解码器暂停时运行。
 
 ### 10 月 22 日示教与 prompt 对齐

@@ -68,7 +68,10 @@ def run_async_server_mode(model, local_rank, host, port):
     logger.info("Running in ASYNC SERVER mode")
     if local_rank == 0:
         dist_model = DistributedModelWrapper(model, local_rank=local_rank)
-        model_server = WebsocketPolicyServer(dist_model, host=host, port=port)
+        # The policy keeps one mutable inference/KV-cache session per process.
+        # Reject a second client before it can reset an active robot session.
+        model_server = WebsocketPolicyServer(dist_model, host=host, port=port,
+                                             single_client=True)
         model_server.serve_forever()
 
         cmd = torch.tensor(
