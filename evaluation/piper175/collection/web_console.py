@@ -135,11 +135,21 @@ class Console(InferenceConsole):
             if self.closing:raise ValueError('控制台正在退出')
             if self.jobs.get('inference',{}).get('running') and action not in ('inference_stop','inference_archive'):
                 raise ValueError('推理正在运行，请先停止推理')
+            if self.jobs.get('inference_stop',{}).get('running') and action != 'inference_archive':
+                raise ValueError('正在停止推理或执行停止后归零，请等待完成')
             if action=='inference_start':
                 self.validate_inference(body)
                 if self.collection_session or self.record or self.control.get('connected') or any(j.get('running') for j in self.jobs.values()):
                     raise ValueError('请先退出采集会话和双臂控制，等待其他操作结束')
                 self.inference_cancelled=False
+                self.inference_zero_cancelled=False
+            if action=='inference_stop' and body.get('auto_zero'):
+                if body.get('ready') is not True:
+                    raise ValueError('自动归零前请确认双臂运动范围已清空')
+                if type(body.get('speed_percent')) is not int or body['speed_percent'] not in range(1,7):
+                    raise ValueError('归零速度须为 1%–6%')
+                if not self.jobs.get('inference',{}).get('running'):
+                    raise ValueError('推理未运行，无法安排停止后归零')
             if self.jobs.get(group,{}).get('running'):raise ValueError('该操作正在处理，请稍候')
             if group in ('record','convert') and self.jobs.get('convert',{}).get('running'):
                 raise ValueError('正在转换，请完成后再操作录制数据')
@@ -199,13 +209,22 @@ class Console(InferenceConsole):
         speed=body.get('speed_percent',1)
         self.log('开始使能归零：'+body['arm']+'，速度 '+str(speed)+'%；日志：'+str(logfile))
         with logfile.open('w') as log:
-            proc=subprocess.Popen(['bash',str(ROOT.parent/'run.sh'),str(ROOT/'enable_zero.py'),
-                                   '--arm',body['arm'],'--speed-percent',str(speed)],cwd=ROOT.parent,stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT,text=True,bufsize=1)
-            for line in proc.stdout:
-                log.write(line);log.flush()
-                self.log(line.rstrip())
-            code=proc.wait()
+            auto_zero=body.get('auto_zero') is True
+            with self.lock:
+                if auto_zero and self.inference_zero_cancelled:
+                    raise RuntimeError('紧急停止已取消自动归零')
+                proc=subprocess.Popen(['bash',str(ROOT.parent/'run.sh'),str(ROOT/'enable_zero.py'),
+                                       '--arm',body['arm'],'--speed-percent',str(speed)],cwd=ROOT.parent,stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT,text=True,bufsize=1,start_new_session=auto_zero)
+                if auto_zero:self.inference_zero_process=proc
+            try:
+                for line in proc.stdout:
+                    log.write(line);log.flush()
+                    self.log(line.rstrip())
+                code=proc.wait()
+            finally:
+                if auto_zero:
+                    with self.lock:self.inference_zero_process=None
         if code:raise RuntimeError('使能归零失败，已停止后续归零；请查看日志：'+str(logfile))
 
     def do_controller_start(self,body):

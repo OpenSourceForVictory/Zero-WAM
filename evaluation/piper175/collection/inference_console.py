@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import tempfile
 import threading
@@ -16,6 +17,8 @@ class InferenceConsole:
     def inference_init(self):
         self.inference_process = None
         self.inference_cancelled = False
+        self.inference_zero_cancelled = False
+        self.inference_zero_process = None
         self.inference_result = None
         self.demo_cache_lock = threading.Lock()
         from web_console import ROOT
@@ -254,12 +257,49 @@ class InferenceConsole:
 
     def do_inference_stop(self, body):
         from web_console import ROOT
+        auto_zero = body.get('auto_zero') is True
         with self.lock:
             self.inference_cancelled = True
             proc = self.inference_process
             if (proc and proc.poll() is None) or self.inference_view()['active_pids']:
                 subprocess.run(['bash', str(ROOT.parent/'inference_client/runtime_config.sh'), 'stop'], check=True)
         self.log('已请求停止推理，等待客户端退出并保存视频；不发送下电或失能命令')
+        if not auto_zero:
+            return
+        self.log('已安排停止后双臂归零；等待推理进程完全退出')
+        deadline = time.monotonic() + 180
+        while self.jobs.get('inference', {}).get('running') or self.inference_view()['active_pids']:
+            if self.inference_zero_cancelled:
+                raise RuntimeError('紧急停止已取消自动归零')
+            if time.monotonic() >= deadline:
+                raise RuntimeError('推理客户端 180 秒内未退出，已取消自动归零')
+            time.sleep(.2)
+        if self.inference_zero_cancelled:
+            raise RuntimeError('紧急停止已取消自动归零')
+        run = self.inference_result.get('run') if self.inference_result else None
+        if not run or self.inference_result.get('mode') != 'execute':
+            raise RuntimeError('没有已保存的真机推理结果，已取消自动归零')
+        result_path = self.inference_run_path(run) / 'result.json'
+        try:
+            result = json.loads(result_path.read_text())
+        except (OSError, ValueError) as exc:
+            raise RuntimeError('推理结果未保存完整，已取消自动归零') from exc
+        if not (result.get('stopped_by_user') and result.get('actuation_started')
+                and result.get('software_stop_latched') and not result.get('error')
+                and not result.get('stop_latch_error')):
+            raise RuntimeError('推理未正常停止或存在执行故障，已取消自动归零')
+        speed = body['speed_percent']
+        self.inference_result['auto_zero'] = {'status': 'running', 'speed_percent': speed}
+        self.save_inference_result()
+        try:
+            self.do_enable_zero({'arm': 'both', 'speed_percent': speed, 'auto_zero': True})
+        except Exception as exc:
+            self.inference_result['auto_zero'] = {'status': 'failed', 'speed_percent': speed, 'error': str(exc)}
+            self.save_inference_result()
+            raise
+        self.inference_result['auto_zero'] = {'status': 'complete', 'speed_percent': speed}
+        self.save_inference_result()
+        self.log('停止后双臂归零完成；左臂、右臂均已确认到位')
 
     def inference_view(self):
         from web_console import ROOT
@@ -346,7 +386,13 @@ class InferenceConsole:
         from fault_stop import latch_software_stop
         # Independent of long-running job locks, disk conversion and Start requests.
         latch_software_stop(ROOT.parent/'inference_client/runtime_config.json')
-        self.inference_cancelled=True
+        with self.lock:
+            self.inference_cancelled=True
+            self.inference_zero_cancelled=True
+            zero_proc=self.inference_zero_process
+            if zero_proc and zero_proc.poll() is None:
+                try:os.killpg(zero_proc.pid, signal.SIGTERM)
+                except ProcessLookupError:pass
         view=self.inference_view()
         self.log('紧急停止执行请求已发出：软件停止已锁定；不下电、不失能。已接收目标仍可能继续运动。')
         return {'stop_requested':True,'pids':view['active_pids']}
