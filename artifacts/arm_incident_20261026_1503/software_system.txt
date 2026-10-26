@@ -1,0 +1,102 @@
+SHUTDOWN     def shutdown(self, join_timeout: float = 1.0):
+        """
+        Fully shut down communication and clean up threads/resources.
+
+        - Stop internal threads and FPSManager
+        - Close underlying comm callback and session resources
+        """
+        # Stop internal threads first
+        self.stop_th(join_timeout=join_timeout)
+
+        # Then close communication resources
+        if self.comm is not None:
+            try:
+                # Clear callback to avoid dangling references
+                if hasattr(self.comm, "clear_callback"):
+                    self.comm.clear_callback()
+            except Exception:
+                # Ignore callback clear failure, do not block shutdown
+                pass
+
+            try:
+                self.comm.close()
+            except Exception:
+                # Ignore close errors from underlying comm layer
+                pass
+
+            self.comm = None
+            self._comm_initialized = False
+        self._req_stamp.clear()
+
+_set_mode     def _set_mode(self) -> None:
+        """Send cached mode message (`self._msg_mode`) to the controller."""
+        self._send_msg(self._msg_mode)
+
+_maybe_set_motion_mode     def _maybe_set_motion_mode(
+        self, motion_mode: Literal['p', 'j', 'l', 'c', 'mit', 'js', 'cpv']
+    ) -> None:
+        """Set motion mode only when auto mode-setting is enabled."""
+        if self._auto_set_motion_mode_enabled:
+            self.set_motion_mode(motion_mode)
+
+ACTIVE_CONTROLLERS
+[]
+SYSTEM Oct 26 15:02:51.063274 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:02:54.079767 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:02:57.094721 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:00.108327 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:03.124529 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:06.139379 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:09.154213 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:12.170017 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:15.185865 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:18.204305 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:21.221218 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:24.180698 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180779 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180824 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180830 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180856 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180898 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180905 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180911 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180938 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180948 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180954 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180964 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.180969 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181008 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181016 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181023 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181073 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181079 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181084 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181112 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181119 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181125 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181176 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181225 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181231 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181237 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181290 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181296 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181309 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181315 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181339 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181351 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181872 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181887 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.181980 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.182271 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.182283 piperpika gnome-control-c[300908]: gdk_monitor_get_scale_factor: assertion 'GDK_IS_MONITOR (monitor)' failed
+Oct 26 15:03:24.238275 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:27.254341 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:30.271904 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:33.288257 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:36.305061 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+Oct 26 15:03:39.319439 piperpika fcitx-ui-baidu-qimpanel-ln.desktop[277395]: baidu panel was already started
+ 
+SYSTEM                total        used        free      shared  buff/cache   available
+内存：      13754        2216         265          69       11272       11144
+交换：       2047           2        2045
+ 

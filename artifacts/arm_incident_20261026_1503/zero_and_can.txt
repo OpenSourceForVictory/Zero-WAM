@@ -1,0 +1,142 @@
+停止遥操跟随和控制进程
+检查关节和夹爪故障：left
+检查关节和夹爪故障：right
+正在使能并归零（5%速度）：left
+{"arm": "left", "channel": "can1", "speed_percent": 5, "target_deg": [0, 0, 0, 0, 0, 0], "execute": true, "reached": false, "calibration_written": false, "gripper_commands_sent": false, "firmware": {"hardware_version": "H-V1.2-1", "motor_ratio_and_batch": "10", "node_type": "ARM_MC", "software_version": "S-V1.7-3", "production_date": "250628", "node_number": "15"}, "initial_deg": [-9.554, 10.385, -8.924, -6.207, 17.608, 4.963]}
+{"time": 1792998192.5954099, "joint_deg": [-5.396, 6.158, -4.732, -2.0380000000000003, 13.39, 0.808], "max_error_deg": 13.39}
+{"time": 1792998193.6007543, "joint_deg": [0.0, -0.03, 0.0, 0.0, 4.851, 0.0], "max_error_deg": 4.851}
+{"time": 1792998194.6063488, "joint_deg": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "max_error_deg": 0.0}
+ZERO REACHED {"arm": "left", "channel": "can1", "speed_percent": 5, "target_deg": [0, 0, 0, 0, 0, 0], "execute": true, "reached": true, "calibration_written": false, "gripper_commands_sent": false, "firmware": {"hardware_version": "H-V1.2-1", "motor_ratio_and_batch": "10", "node_type": "ARM_MC", "software_version": "S-V1.7-3", "production_date": "250628", "node_number": "15"}, "initial_deg": [-9.554, 10.385, -8.924, -6.207, 17.608, 4.963], "sent_at": 1792998192.5951428, "final_deg": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "completed_at": 1792998195.109186}
+归零完成：left；关节角：[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+正在使能并归零（5%速度）：right
+{"arm": "right", "channel": "can0", "speed_percent": 5, "target_deg": [0, 0, 0, 0, 0, 0], "execute": true, "reached": false, "calibration_written": false, "gripper_commands_sent": false, "firmware": {"hardware_version": "H-V1.2-1", "motor_ratio_and_batch": "10", "node_type": "ARM_MC", "software_version": "S-V1.7-3", "production_date": "250710", "node_number": "15"}, "initial_deg": [25.291, 125.901, -112.888, -4.969, 32.122, -12.306000000000001]}
+{"time": 1792998197.6634424, "joint_deg": [21.200000000000003, 121.92900000000002, -108.545, -0.5670000000000001, 28.921, -8.104000000000001], "max_error_deg": 121.92900000000002}
+Zero move aborted; no further targets or automatic electronic stop/reset/disable. An accepted target may still execute; position hold is not guaranteed.
+Traceback (most recent call last):
+  File "/home/piperpika/piper_runtime/go_zero.py", line 115, in <module>
+    main()
+  File "/home/piperpika/piper_runtime/go_zero.py", line 78, in main
+    angles = list(map(math.degrees, checked()))
+  File "/home/piperpika/piper_runtime/go_zero.py", line 35, in checked
+    return check_motion(arm)
+  File "/home/piperpika/piper_runtime/arm.py", line 32, in check_motion
+    joints, status = feedback(arm)
+  File "/home/piperpika/piper_runtime/arm.py", line 25, in feedback
+    raise RuntimeError('Missing or stale arm feedback')
+RuntimeError: Missing or stale arm feedback
+Traceback (most recent call last):
+  File "/home/piperpika/piper_runtime/collection/enable_zero.py", line 121, in <module>
+    main()
+  File "/home/piperpika/piper_runtime/collection/enable_zero.py", line 108, in main
+    subprocess.run([sys.executable, '-u', str(RUNTIME/'go_zero.py'), '--arm', side,
+  File "/home/piperpika/miniconda3/envs/piper_new/lib/python3.10/subprocess.py", line 526, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/home/piperpika/miniconda3/envs/piper_new/bin/python', '-u', '/home/piperpika/piper_runtime/go_zero.py', '--arm', 'right', '--execute', '--speed-percent', '5', '--output', '/home/piperpika/piper_runtime/recovery_checks/20261026_150310_web_zero/right']' returned non-zero exit status 1.
+
+FILE /home/piperpika/piper_runtime/recovery_checks/20261026_150310_web_zero/left/result.json {
+  "arm": "left",
+  "channel": "can1",
+  "speed_percent": 5,
+  "target_deg": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "execute": true,
+  "reached": true,
+  "calibration_written": false,
+  "gripper_commands_sent": false,
+  "firmware": {
+    "hardware_version": "H-V1.2-1",
+    "motor_ratio_and_batch": "10",
+    "node_type": "ARM_MC",
+    "software_version": "S-V1.7-3",
+    "production_date": "250628",
+    "node_number": "15"
+  },
+  "initial_deg": [
+    -9.554,
+    10.385,
+    -8.924,
+    -6.207,
+    17.608,
+    4.963
+  ],
+  "sent_at": 1792998192.5951428,
+  "final_deg": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "completed_at": 1792998195.109186
+}
+FILE /home/piperpika/piper_runtime/recovery_checks/20261026_150310_web_zero/right/result.json {
+  "arm": "right",
+  "channel": "can0",
+  "speed_percent": 5,
+  "target_deg": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "execute": true,
+  "reached": false,
+  "calibration_written": false,
+  "gripper_commands_sent": false,
+  "firmware": {
+    "hardware_version": "H-V1.2-1",
+    "motor_ratio_and_batch": "10",
+    "node_type": "ARM_MC",
+    "software_version": "S-V1.7-3",
+    "production_date": "250710",
+    "node_number": "15"
+  },
+  "initial_deg": [
+    25.291,
+    125.901,
+    -112.888,
+    -4.969,
+    32.122,
+    -12.306000000000001
+  ],
+  "sent_at": 1792998197.6628072,
+  "error": "RuntimeError('Missing or stale arm feedback')",
+  "electronic_stop_sent": false,
+  "software_stop_latched": true
+}
+5: can0: <NOARP,UP,LOWER_UP,ECHO> mtu 16 qdisc pfifo_fast state UP mode DEFAULT group default qlen 10
+    link/can  promiscuity 0 minmtu 0 maxmtu 0 
+    can state ERROR-ACTIVE restart-ms 0 
+	  bitrate 1000000 sample-point 0.750 
+	  tq 62 prop-seg 5 phase-seg1 6 phase-seg2 4 sjw 2
+	  gs_usb: tseg1 1..16 tseg2 1..8 sjw 1..4 brp 1..1024 brp-inc 1
+	  clock 48000000 
+	  re-started bus-errors arbit-lost error-warn error-pass bus-off
+	  0          0          0          12         371655270  0         numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 parentbus usb parentdev 1-2.1:1.0 
+    RX:  bytes   packets errors dropped  missed   mcast           
+    3806274952 475784369      0   82762       0       0 
+    TX:  bytes   packets errors dropped carrier collsns           
+           920    813018      0       0       0       0 
+6: can1: <NOARP,UP,LOWER_UP,ECHO> mtu 16 qdisc pfifo_fast state UP mode DEFAULT group default qlen 10
+    link/can  promiscuity 0 minmtu 0 maxmtu 0 
+    can state ERROR-ACTIVE restart-ms 0 
+	  bitrate 1000000 sample-point 0.750 
+	  tq 62 prop-seg 5 phase-seg1 6 phase-seg2 4 sjw 2
+	  gs_usb: tseg1 1..16 tseg2 1..8 sjw 1..4 brp 1..1024 brp-inc 1
+	  clock 48000000 
+	  re-started bus-errors arbit-lost error-warn error-pass bus-off
+	  0          0          0          18         370632089  0         numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 parentbus usb parentdev 1-2.2:1.0 
+    RX:  bytes   packets errors dropped  missed   mcast           
+    3806644032 475830504      0   82903       0       0 
+    TX:  bytes   packets errors dropped carrier collsns           
+           888    813325      0       0       0       0 
+
